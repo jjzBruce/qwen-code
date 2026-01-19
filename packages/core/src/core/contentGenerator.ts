@@ -202,8 +202,28 @@ export function validateModelConfig(
 ): ModelConfigValidationResult {
   const errors: Error[] = [];
 
-  // Qwen OAuth doesn't need validation - it uses dynamic tokens
-  if (config.authType === AuthType.QWEN_OAUTH) {
+  // Qwen OAuth and Ollama don't need API key validation
+  if (
+    config.authType === AuthType.QWEN_OAUTH ||
+    config.authType === AuthType.USE_OLLAMA
+  ) {
+    // For Ollama, check if model and baseUrl are provided
+    if (config.authType === AuthType.USE_OLLAMA) {
+      const errors: Error[] = [];
+      if (!config.model) {
+        errors.push(new StrictMissingModelIdError(config.authType));
+      }
+      if (!config.baseUrl) {
+        errors.push(
+          new MissingBaseUrlError({
+            authType: config.authType,
+            model: config.model,
+          }),
+        );
+      }
+      return { valid: errors.length === 0, errors };
+    }
+
     return { valid: true, errors: [] };
   }
 

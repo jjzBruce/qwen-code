@@ -86,6 +86,19 @@ export function getAnthropicAvailableModelFromEnv(): AvailableModel | null {
     : null;
 }
 
+export function getOllamaAvailableModelFromEnv(): AvailableModel | null {
+  const id = process.env['OLLAMA_MODEL']?.trim();
+  return id
+    ? {
+        id,
+        label: id,
+        get description() {
+          return t('Configured via OLLAMA_MODEL environment variable');
+        },
+      }
+    : null;
+}
+
 /**
  * Convert core AvailableModel to CLI AvailableModel format
  */
@@ -141,6 +154,10 @@ export function getAvailableModelsForAuthType(
     case AuthType.USE_ANTHROPIC: {
       const anthropicModel = getAnthropicAvailableModelFromEnv();
       return anthropicModel ? [anthropicModel] : [];
+    }
+    case AuthType.USE_OLLAMA: {
+      const ollamaModel = getOllamaAvailableModelFromEnv();
+      return ollamaModel ? [ollamaModel] : [];
     }
     default:
       return [];

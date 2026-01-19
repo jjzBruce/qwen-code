@@ -84,6 +84,12 @@ export class OllamaContentGenerator implements ContentGenerator {
     // Transform the request to Ollama format
     const ollamaRequest = this.transformToOllamaRequest(request);
 
+    console.log('[Ollama Debug] Request URL:', url);
+    console.log(
+      '[Ollama Debug] Request payload:',
+      JSON.stringify(ollamaRequest, null, 2),
+    );
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -93,13 +99,22 @@ export class OllamaContentGenerator implements ContentGenerator {
         body: JSON.stringify(ollamaRequest),
       });
 
+      console.log('[Ollama Debug] Response status:', response.status);
+      console.log('[Ollama Debug] Response status text:', response.statusText);
+
       if (!response.ok) {
+        const responseBody = await response.text();
+        console.log('[Ollama Debug] Response body:', responseBody);
         throw new Error(
-          `Ollama API request failed: ${response.status} ${response.statusText}`,
+          `Ollama API request failed: ${response.status} ${response.statusText}. Body: ${responseBody}`,
         );
       }
 
       const result: OllamaGenerateResponse = await response.json();
+      console.log(
+        '[Ollama Debug] Response data:',
+        JSON.stringify(result, null, 2),
+      );
 
       if (!result.message?.content) {
         throw new Error('No response text received from Ollama');
@@ -124,6 +139,12 @@ export class OllamaContentGenerator implements ContentGenerator {
     const ollamaRequest = this.transformToOllamaRequest(request);
     ollamaRequest.stream = true;
 
+    console.log('[Ollama Debug Stream] Request URL:', url);
+    console.log(
+      '[Ollama Debug Stream] Request payload:',
+      JSON.stringify(ollamaRequest, null, 2),
+    );
+
     // Create a simple async generator function
     const generator = async function* (
       self: OllamaContentGenerator,
@@ -137,9 +158,17 @@ export class OllamaContentGenerator implements ContentGenerator {
           body: JSON.stringify(ollamaRequest),
         });
 
+        console.log('[Ollama Debug Stream] Response status:', response.status);
+        console.log(
+          '[Ollama Debug Stream] Response status text:',
+          response.statusText,
+        );
+
         if (!response.ok) {
+          const responseBody = await response.text();
+          console.log('[Ollama Debug Stream] Response body:', responseBody);
           throw new Error(
-            `Ollama API request failed: ${response.status} ${response.statusText}`,
+            `Ollama API request failed: ${response.status} ${response.statusText}. Body: ${responseBody}`,
           );
         }
 
@@ -264,6 +293,12 @@ export class OllamaContentGenerator implements ContentGenerator {
       prompt: prompt.trim(),
     };
 
+    console.log('[Ollama Debug Embed] Request URL:', url);
+    console.log(
+      '[Ollama Debug Embed] Request payload:',
+      JSON.stringify(embeddingRequest, null, 2),
+    );
+
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -273,13 +308,25 @@ export class OllamaContentGenerator implements ContentGenerator {
         body: JSON.stringify(embeddingRequest),
       });
 
+      console.log('[Ollama Debug Embed] Response status:', response.status);
+      console.log(
+        '[Ollama Debug Embed] Response status text:',
+        response.statusText,
+      );
+
       if (!response.ok) {
+        const responseBody = await response.text();
+        console.log('[Ollama Debug Embed] Response body:', responseBody);
         throw new Error(
-          `Ollama embeddings API request failed: ${response.status} ${response.statusText}`,
+          `Ollama embeddings API request failed: ${response.status} ${response.statusText}. Body: ${responseBody}`,
         );
       }
 
       const result: OllamaEmbeddingResponse = await response.json();
+      console.log(
+        '[Ollama Debug Embed] Response data:',
+        JSON.stringify(result, null, 2),
+      );
 
       return {
         embeddings: [

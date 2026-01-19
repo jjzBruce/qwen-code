@@ -270,28 +270,28 @@ export function createContentGeneratorConfig(
 }
 
 export async function createContentGenerator(
-  generatorConfig: ContentGeneratorConfig,
-  config: Config,
+  config: ContentGeneratorConfig,
+  gcConfig: Config,
   isInitialAuth?: boolean,
 ): Promise<ContentGenerator> {
-  const validation = validateModelConfig(generatorConfig, false);
+  const validation = validateModelConfig(config, false);
   if (!validation.valid) {
     throw new Error(validation.errors.map((e) => e.message).join('\n'));
   }
 
-  const authType = generatorConfig.authType;
-  if (!authType) {
-    throw new Error('ContentGeneratorConfig must have an authType');
-  }
-
-  let baseGenerator: ContentGenerator;
-
-  if (authType === AuthType.USE_OPENAI) {
+  if (config.authType === AuthType.USE_OPENAI) {
+    // Import OpenAIContentGenerator dynamically to avoid circular dependencies
     const { createOpenAIContentGenerator } = await import(
       './openaiContentGenerator/index.js'
     );
-    baseGenerator = createOpenAIContentGenerator(generatorConfig, config);
-  } else if (authType === AuthType.QWEN_OAUTH) {
+
+    // Always use OpenAIContentGenerator, logging is controlled by enableOpenAILogging flag
+    const generator = createOpenAIContentGenerator(config, gcConfig);
+    return new LoggingContentGenerator(generator, gcConfig);
+  }
+
+  if (config.authType === AuthType.QWEN_OAUTH) {
+    // Import required classes dynamically
     const { getQwenOAuthClient: getQwenOauthClient } = await import(
       '../qwen/qwenOAuth2.js'
     );
@@ -300,38 +300,44 @@ export async function createContentGenerator(
     );
 
     try {
+      // Get the Qwen OAuth client (now includes integrated token management)
+      // If this is initial auth, require cached credentials to detect missing credentials
       const qwenClient = await getQwenOauthClient(
-        config,
+        gcConfig,
         isInitialAuth ? { requireCachedCredentials: true } : undefined,
       );
-      baseGenerator = new QwenContentGenerator(
-        qwenClient,
-        generatorConfig,
-        config,
-      );
+
+      // Create the content generator with dynamic token management
+      const generator = new QwenContentGenerator(qwenClient, config, gcConfig);
+      return new LoggingContentGenerator(generator, gcConfig);
     } catch (error) {
       throw new Error(
         `${error instanceof Error ? error.message : String(error)}`,
       );
     }
-  } else if (authType === AuthType.USE_ANTHROPIC) {
+  }
+
+  if (config.authType === AuthType.USE_ANTHROPIC) {
     const { createAnthropicContentGenerator } = await import(
       './anthropicContentGenerator/index.js'
     );
-    baseGenerator = createAnthropicContentGenerator(generatorConfig, config);
-  } else if (
-    authType === AuthType.USE_GEMINI ||
-    authType === AuthType.USE_VERTEX_AI
+
+    const generator = createAnthropicContentGenerator(config, gcConfig);
+    return new LoggingContentGenerator(generator, gcConfig);
+  }
+
+  if (
+    config.authType === AuthType.USE_GEMINI ||
+    config.authType === AuthType.USE_VERTEX_AI
   ) {
     const { createGeminiContentGenerator } = await import(
       './geminiContentGenerator/index.js'
     );
-    baseGenerator = createGeminiContentGenerator(generatorConfig, config);
-  } else {
-    throw new Error(
-      `Error creating contentGenerator: Unsupported authType: ${authType}`,
-    );
+    const generator = createGeminiContentGenerator(config, gcConfig);
+    return new LoggingContentGenerator(generator, gcConfig);
   }
 
-  return new LoggingContentGenerator(baseGenerator, config, generatorConfig);
+  throw new Error(
+    `Error creating contentGenerator: Unsupported authType: ${config.authType}`,
+  );
 }

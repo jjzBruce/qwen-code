@@ -22,7 +22,13 @@
 
 ### Installation
 
-Download and install the extension from the [Visual Studio Code Extension Marketplace](https://marketplace.visualstudio.com/items?itemName=qwenlm.qwen-code-vscode-ide-companion).
+1. Install Qwen Code CLI:
+
+   ```bash
+   npm install -g qwen-code
+   ```
+
+2. Download and install the extension from the [Visual Studio Code Extension Marketplace](https://marketplace.visualstudio.com/items?itemName=qwenlm.qwen-code-vscode-ide-companion).
 
 ## Troubleshooting
 

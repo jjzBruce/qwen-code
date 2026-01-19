@@ -874,10 +874,11 @@ export async function loadCliConfig(
     }
   };
 
-  // ACP mode check: must include both --acp (current) and --experimental-acp (deprecated).
-  // Without this check, edit, write_file, run_shell_command would be excluded in ACP mode.
-  const isAcpMode = argv.acp || argv.experimentalAcp;
-  if (!interactive && !isAcpMode && inputFormat !== InputFormat.STREAM_JSON) {
+  if (
+    !interactive &&
+    !argv.experimentalAcp &&
+    inputFormat !== InputFormat.STREAM_JSON
+  ) {
     switch (approvalMode) {
       case ApprovalMode.PLAN:
       case ApprovalMode.DEFAULT:

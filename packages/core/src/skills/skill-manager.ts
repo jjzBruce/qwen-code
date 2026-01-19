@@ -235,7 +235,6 @@ export class SkillManager {
     }
 
     this.watchStarted = true;
-    await this.ensureUserSkillsDir();
     await this.refreshCache();
     this.updateWatchersFromCache();
   }
@@ -487,14 +486,29 @@ export class SkillManager {
   }
 
   private updateWatchersFromCache(): void {
-    const watchTargets = new Set<string>(
-      (['project', 'user'] as const)
-        .map((level) => this.getSkillsBaseDir(level))
-        .filter((baseDir) => fsSync.existsSync(baseDir)),
-    );
+    const desiredPaths = new Set<string>();
+
+    for (const level of ['project', 'user'] as const) {
+      const baseDir = this.getSkillsBaseDir(level);
+      const parentDir = path.dirname(baseDir);
+      if (fsSync.existsSync(parentDir)) {
+        desiredPaths.add(parentDir);
+      }
+      if (fsSync.existsSync(baseDir)) {
+        desiredPaths.add(baseDir);
+      }
+
+      const levelSkills = this.skillsCache?.get(level) || [];
+      for (const skill of levelSkills) {
+        const skillDir = path.dirname(skill.filePath);
+        if (fsSync.existsSync(skillDir)) {
+          desiredPaths.add(skillDir);
+        }
+      }
+    }
 
     for (const existingPath of this.watchers.keys()) {
-      if (!watchTargets.has(existingPath)) {
+      if (!desiredPaths.has(existingPath)) {
         void this.watchers
           .get(existingPath)
           ?.close()
@@ -508,7 +522,7 @@ export class SkillManager {
       }
     }
 
-    for (const watchPath of watchTargets) {
+    for (const watchPath of desiredPaths) {
       if (this.watchers.has(watchPath)) {
         continue;
       }
@@ -542,17 +556,5 @@ export class SkillManager {
       this.refreshTimer = null;
       void this.refreshCache().then(() => this.updateWatchersFromCache());
     }, 150);
-  }
-
-  private async ensureUserSkillsDir(): Promise<void> {
-    const baseDir = this.getSkillsBaseDir('user');
-    try {
-      await fs.mkdir(baseDir, { recursive: true });
-    } catch (error) {
-      console.warn(
-        `Failed to create user skills directory at ${baseDir}:`,
-        error,
-      );
-    }
   }
 }

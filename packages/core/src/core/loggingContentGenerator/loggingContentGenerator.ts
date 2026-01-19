@@ -31,10 +31,7 @@ import {
   logApiRequest,
   logApiResponse,
 } from '../../telemetry/loggers.js';
-import type {
-  ContentGenerator,
-  ContentGeneratorConfig,
-} from '../contentGenerator.js';
+import type { ContentGenerator } from '../contentGenerator.js';
 import { isStructuredError } from '../../utils/quotaErrorDetection.js';
 import { OpenAIContentConverter } from '../openaiContentGenerator/converter.js';
 import { OpenAILogger } from '../../utils/openaiLogger.js';
@@ -53,11 +50,9 @@ export class LoggingContentGenerator implements ContentGenerator {
   constructor(
     private readonly wrapped: ContentGenerator,
     private readonly config: Config,
-    generatorConfig: ContentGeneratorConfig,
   ) {
-    // Extract fields needed for initialization from passed config
-    // (config.getContentGeneratorConfig() may not be available yet during refreshAuth)
-    if (generatorConfig.enableOpenAILogging) {
+    const generatorConfig = this.config.getContentGeneratorConfig();
+    if (generatorConfig?.enableOpenAILogging) {
       this.openaiLogger = new OpenAILogger(generatorConfig.openAILoggingDir);
       this.schemaCompliance = generatorConfig.schemaCompliance;
     }
@@ -94,7 +89,7 @@ export class LoggingContentGenerator implements ContentGenerator {
         model,
         durationMs,
         prompt_id,
-        this.config.getAuthType(),
+        this.config.getContentGeneratorConfig()?.authType,
         usageMetadata,
         responseText,
       ),
@@ -131,7 +126,7 @@ export class LoggingContentGenerator implements ContentGenerator {
         errorMessage,
         durationMs,
         prompt_id,
-        this.config.getAuthType(),
+        this.config.getContentGeneratorConfig()?.authType,
         errorType,
         errorStatus,
       ),

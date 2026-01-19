@@ -19,12 +19,38 @@ import type {
   EmbedContentParameters,
   EmbedContentResponse,
   FinishReason,
+  Part,
 } from '@google/genai';
+
+// Define a type for Ollama tools format
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonObject
+  | JsonValue[];
+
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
+
+export interface OllamaToolFunction {
+  name: string;
+  description?: string;
+  parameters: JsonObject; // Parameters can be complex JSON schema
+}
+
+export interface OllamaTool {
+  type: string;
+  function: OllamaToolFunction;
+}
 
 export interface OllamaGenerateRequest {
   model: string;
   messages: OllamaMessage[];
   stream?: boolean;
+  tools?: OllamaTool[]; // Ollama tools format
   options?: {
     // Sampling parameters
     num_predict?: number;
@@ -41,12 +67,20 @@ export interface OllamaMessage {
   content: string;
 }
 
+export interface OllamaToolCall {
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
 export interface OllamaGenerateResponse {
   model: string;
   created_at: string;
   message: {
     role: string;
     content: string;
+    tool_calls?: OllamaToolCall[];
   };
   done: boolean;
   total_duration?: number;
@@ -197,7 +231,7 @@ export class OllamaContentGenerator implements ContentGenerator {
               try {
                 const chunk: OllamaGenerateResponse = JSON.parse(line);
 
-                if (chunk.message?.content) {
+                if (chunk.message?.content || chunk.message?.tool_calls) {
                   // Yield incremental response
                   yield self.transformToGenAIResponse(chunk);
                 }
@@ -407,6 +441,63 @@ export class OllamaContentGenerator implements ContentGenerator {
       stream: false,
     };
 
+    // Handle tools if they are provided in the request
+    // Use type assertion to access potentially non-existent tools property
+    const requestWithTools = request as GenerateContentParameters & {
+      tools?: unknown[];
+    };
+    if (
+      requestWithTools.tools &&
+      Array.isArray(requestWithTools.tools) &&
+      requestWithTools.tools.length > 0
+    ) {
+      // Convert Google GenAI tools to Ollama format
+      ollamaRequest.tools = requestWithTools.tools
+        .map((tool: unknown) => {
+          // The tool should have functionDeclarations in Google GenAI format
+          if (
+            tool &&
+            typeof tool === 'object' &&
+            'functionDeclarations' in tool &&
+            Array.isArray(tool.functionDeclarations) &&
+            tool.functionDeclarations.length > 0
+          ) {
+            const func = tool.functionDeclarations[0];
+            if (func && typeof func === 'object' && 'name' in func) {
+              return {
+                type: 'function',
+                function: {
+                  name: func.name as string,
+                  description:
+                    'description' in func
+                      ? (func.description as string) || ''
+                      : '',
+                  parameters:
+                    'parameters' in func
+                      ? (func.parameters as JsonObject) || {}
+                      : {},
+                },
+              };
+            }
+          }
+          return { type: '', function: { name: '', parameters: {} } }; // Return empty object if no function declarations
+        })
+        .filter((tool: unknown) => {
+          if (
+            tool &&
+            typeof tool === 'object' &&
+            'type' in tool &&
+            'function' in tool &&
+            tool.function &&
+            typeof tool.function === 'object' &&
+            'name' in tool.function
+          ) {
+            return tool.type !== '' && tool.function.name !== '';
+          }
+          return false;
+        }); // Filter out empty tools
+    }
+
     // Add sampling parameters from config
     if (this.config.samplingParams) {
       ollamaRequest.options = {
@@ -426,15 +517,34 @@ export class OllamaContentGenerator implements ContentGenerator {
   ): GenerateContentResponse {
     const genAIResponse = new GenerateContentResponse();
 
+    // Prepare the content parts - text and potentially function calls
+    const parts: Part[] = response.message.content
+      ? [
+          {
+            text: response.message.content,
+          },
+        ]
+      : [];
+
+    // Handle tool calls if present in the response
+    if (response.message.tool_calls && response.message.tool_calls.length > 0) {
+      for (const toolCall of response.message.tool_calls) {
+        // Add function call to parts - using the correct Part type structure
+        const functionCallPart: Record<string, unknown> = {
+          functionCall: {
+            name: toolCall.function.name,
+            args: JSON.parse(toolCall.function.arguments || '{}') as JsonObject,
+          },
+        };
+        parts.push(functionCallPart as Part);
+      }
+    }
+
     genAIResponse.candidates = [
       {
         content: {
           role: 'model',
-          parts: [
-            {
-              text: response.message.content,
-            },
-          ],
+          parts,
         },
         finishReason: response.done
           ? ('STOP' as FinishReason)

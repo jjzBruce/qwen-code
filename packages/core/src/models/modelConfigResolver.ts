@@ -229,7 +229,7 @@ export function resolveModelConfig(
 
   // ---- API Key Env Key (for error messages) ----
   let apiKeyEnvKey: string | undefined;
-  if (authType && modelProvider?.envKey) {
+  if (authType && modelProvider?.envKey && modelProvider.id) {
     apiKeyEnvKey = modelProvider.envKey;
     sources['apiKeyEnvKey'] = modelProvidersSource(
       authType,

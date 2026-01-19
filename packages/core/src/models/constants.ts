@@ -83,11 +83,17 @@ export const AUTH_ENV_MAPPINGS = {
     baseUrl: [],
     model: [],
   },
+  ollama: {
+    apiKey: [],
+    baseUrl: ['OLLAMA_BASE_URL'],
+    model: ['OLLAMA_MODEL'],
+  },
 } as const satisfies Record<AuthType, AuthEnvMapping>;
 
 export const DEFAULT_MODELS = {
   openai: 'qwen3-coder-plus',
   'qwen-oauth': DEFAULT_QWEN_MODEL,
+  ollama: 'llama3.2',
 } as Partial<Record<AuthType, string>>;
 
 export const QWEN_OAUTH_ALLOWED_MODELS = [

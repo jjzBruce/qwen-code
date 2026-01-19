@@ -58,6 +58,7 @@ export enum AuthType {
   USE_GEMINI = 'gemini',
   USE_VERTEX_AI = 'vertex-ai',
   USE_ANTHROPIC = 'anthropic',
+  USE_OLLAMA = 'ollama',
 }
 
 export type ContentGeneratorConfig = {
@@ -334,6 +335,14 @@ export async function createContentGenerator(
       './geminiContentGenerator/index.js'
     );
     const generator = createGeminiContentGenerator(config, gcConfig);
+    return new LoggingContentGenerator(generator, gcConfig);
+  }
+
+  if (config.authType === AuthType.USE_OLLAMA) {
+    const { OllamaContentGenerator } = await import(
+      './ollamaContentGenerator/index.js'
+    );
+    const generator = new OllamaContentGenerator(config);
     return new LoggingContentGenerator(generator, gcConfig);
   }
 

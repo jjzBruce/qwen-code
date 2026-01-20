@@ -22,10 +22,6 @@ import { GenerateContentResponse, FinishReason } from '@google/genai';
 import type OpenAI from 'openai';
 import { safeJsonParse } from '../../utils/safeJsonParse.js';
 import { StreamingToolCallParser } from './streamingToolCallParser.js';
-import {
-  convertSchema,
-  type SchemaComplianceMode,
-} from '../../utils/schemaConverter.js';
 
 /**
  * Extended usage type that supports both OpenAI standard format and alternative formats
@@ -33,25 +29,6 @@ import {
  */
 interface ExtendedCompletionUsage extends OpenAI.CompletionUsage {
   cached_tokens?: number;
-}
-
-interface ExtendedChatCompletionAssistantMessageParam
-  extends OpenAI.Chat.ChatCompletionAssistantMessageParam {
-  reasoning_content?: string | null;
-}
-
-type ExtendedChatCompletionMessageParam =
-  | OpenAI.Chat.ChatCompletionMessageParam
-  | ExtendedChatCompletionAssistantMessageParam;
-
-export interface ExtendedCompletionMessage
-  extends OpenAI.Chat.ChatCompletionMessage {
-  reasoning_content?: string | null;
-}
-
-export interface ExtendedCompletionChunkDelta
-  extends OpenAI.Chat.ChatCompletionChunk.Choice.Delta {
-  reasoning_content?: string | null;
 }
 
 /**
@@ -67,8 +44,7 @@ export interface ToolCallAccumulator {
  * Parsed parts from Gemini content, categorized by type
  */
 interface ParsedParts {
-  thoughtParts: string[];
-  contentParts: string[];
+  textParts: string[];
   functionCalls: FunctionCall[];
   functionResponses: FunctionResponse[];
   mediaParts: Array<{
@@ -84,20 +60,10 @@ interface ParsedParts {
  */
 export class OpenAIContentConverter {
   private model: string;
-  private schemaCompliance: SchemaComplianceMode;
   private streamingToolCallParser: StreamingToolCallParser =
     new StreamingToolCallParser();
 
-  constructor(model: string, schemaCompliance: SchemaComplianceMode = 'auto') {
-    this.model = model;
-    this.schemaCompliance = schemaCompliance;
-  }
-
-  /**
-   * Update the model used for response metadata (modelVersion/logging) and any
-   * model-specific conversion behavior.
-   */
-  setModel(model: string): void {
+  constructor(model: string) {
     this.model = model;
   }
 
@@ -207,20 +173,18 @@ export class OpenAIContentConverter {
             // Handle both Gemini tools (parameters) and MCP tools (parametersJsonSchema)
             if (func.parametersJsonSchema) {
               // MCP tool format - use parametersJsonSchema directly
-              // Create a shallow copy to avoid mutating the original object
-              const paramsCopy = {
-                ...(func.parametersJsonSchema as Record<string, unknown>),
-              };
-              parameters = paramsCopy;
+              if (func.parametersJsonSchema) {
+                // Create a shallow copy to avoid mutating the original object
+                const paramsCopy = {
+                  ...(func.parametersJsonSchema as Record<string, unknown>),
+                };
+                parameters = paramsCopy;
+              }
             } else if (func.parameters) {
               // Gemini tool format - convert parameters to OpenAI format
               parameters = this.convertGeminiToolParametersToOpenAI(
                 func.parameters as Record<string, unknown>,
               );
-            }
-
-            if (parameters) {
-              parameters = convertSchema(parameters, this.schemaCompliance);
             }
 
             openAITools.push({
@@ -244,9 +208,8 @@ export class OpenAIContentConverter {
    */
   convertGeminiRequestToOpenAI(
     request: GenerateContentParameters,
-    options: { cleanOrphanToolCalls: boolean } = { cleanOrphanToolCalls: true },
   ): OpenAI.Chat.ChatCompletionMessageParam[] {
-    let messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
 
     // Handle system instruction from config
     this.addSystemInstructionMessage(request, messages);
@@ -255,89 +218,11 @@ export class OpenAIContentConverter {
     this.processContents(request.contents, messages);
 
     // Clean up orphaned tool calls and merge consecutive assistant messages
-    if (options.cleanOrphanToolCalls) {
-      messages = this.cleanOrphanedToolCalls(messages);
-    }
-    messages = this.mergeConsecutiveAssistantMessages(messages);
+    const cleanedMessages = this.cleanOrphanedToolCalls(messages);
+    const mergedMessages =
+      this.mergeConsecutiveAssistantMessages(cleanedMessages);
 
-    return messages;
-  }
-
-  /**
-   * Convert Gemini response to OpenAI completion format (for logging).
-   */
-  convertGeminiResponseToOpenAI(
-    response: GenerateContentResponse,
-  ): OpenAI.Chat.ChatCompletion {
-    const candidate = response.candidates?.[0];
-    const parts = (candidate?.content?.parts || []) as Part[];
-    const parsedParts = this.parseParts(parts);
-
-    const message: ExtendedCompletionMessage = {
-      role: 'assistant',
-      content: parsedParts.contentParts.join('') || null,
-      refusal: null,
-    };
-
-    const reasoningContent = parsedParts.thoughtParts.join('');
-    if (reasoningContent) {
-      message.reasoning_content = reasoningContent;
-    }
-
-    if (parsedParts.functionCalls.length > 0) {
-      message.tool_calls = parsedParts.functionCalls.map((call, index) => ({
-        id: call.id || `call_${index}`,
-        type: 'function' as const,
-        function: {
-          name: call.name || '',
-          arguments: JSON.stringify(call.args || {}),
-        },
-      }));
-    }
-
-    const finishReason = this.mapGeminiFinishReasonToOpenAI(
-      candidate?.finishReason,
-    );
-
-    const usageMetadata = response.usageMetadata;
-    const usage: OpenAI.CompletionUsage = {
-      prompt_tokens: usageMetadata?.promptTokenCount || 0,
-      completion_tokens: usageMetadata?.candidatesTokenCount || 0,
-      total_tokens: usageMetadata?.totalTokenCount || 0,
-    };
-
-    if (usageMetadata?.cachedContentTokenCount !== undefined) {
-      (
-        usage as OpenAI.CompletionUsage & {
-          prompt_tokens_details?: { cached_tokens?: number };
-        }
-      ).prompt_tokens_details = {
-        cached_tokens: usageMetadata.cachedContentTokenCount,
-      };
-    }
-
-    const createdMs = response.createTime
-      ? Number(response.createTime)
-      : Date.now();
-    const createdSeconds = Number.isFinite(createdMs)
-      ? Math.floor(createdMs / 1000)
-      : Math.floor(Date.now() / 1000);
-
-    return {
-      id: response.responseId || `gemini-${Date.now()}`,
-      object: 'chat.completion',
-      created: createdSeconds,
-      model: response.modelVersion || this.model,
-      choices: [
-        {
-          index: 0,
-          message,
-          finish_reason: finishReason,
-          logprobs: null,
-        },
-      ],
-      usage,
-    };
+    return mergedMessages;
   }
 
   /**
@@ -366,7 +251,7 @@ export class OpenAIContentConverter {
    */
   private processContents(
     contents: ContentListUnion,
-    messages: ExtendedChatCompletionMessageParam[],
+    messages: OpenAI.Chat.ChatCompletionMessageParam[],
   ): void {
     if (Array.isArray(contents)) {
       for (const content of contents) {
@@ -382,7 +267,7 @@ export class OpenAIContentConverter {
    */
   private processContent(
     content: ContentUnion | PartUnion,
-    messages: ExtendedChatCompletionMessageParam[],
+    messages: OpenAI.Chat.ChatCompletionMessageParam[],
   ): void {
     if (typeof content === 'string') {
       messages.push({ role: 'user' as const, content });
@@ -416,19 +301,11 @@ export class OpenAIContentConverter {
         },
       }));
 
-      const assistantMessage: ExtendedChatCompletionAssistantMessageParam = {
+      messages.push({
         role: 'assistant' as const,
-        content: parsedParts.contentParts.join('') || null,
+        content: parsedParts.textParts.join('') || null,
         tool_calls: toolCalls,
-      };
-
-      // Only include reasoning_content if it has actual content
-      const reasoningContent = parsedParts.thoughtParts.join('');
-      if (reasoningContent) {
-        assistantMessage.reasoning_content = reasoningContent;
-      }
-
-      messages.push(assistantMessage);
+      });
       return;
     }
 
@@ -445,8 +322,7 @@ export class OpenAIContentConverter {
    * Parse Gemini parts into categorized components
    */
   private parseParts(parts: Part[]): ParsedParts {
-    const thoughtParts: string[] = [];
-    const contentParts: string[] = [];
+    const textParts: string[] = [];
     const functionCalls: FunctionCall[] = [];
     const functionResponses: FunctionResponse[] = [];
     const mediaParts: Array<{
@@ -458,20 +334,9 @@ export class OpenAIContentConverter {
 
     for (const part of parts) {
       if (typeof part === 'string') {
-        contentParts.push(part);
-      } else if (
-        'text' in part &&
-        part.text &&
-        !('thought' in part && part.thought)
-      ) {
-        contentParts.push(part.text);
-      } else if (
-        'text' in part &&
-        part.text &&
-        'thought' in part &&
-        part.thought
-      ) {
-        thoughtParts.push(part.text);
+        textParts.push(part);
+      } else if ('text' in part && part.text) {
+        textParts.push(part.text);
       } else if ('functionCall' in part && part.functionCall) {
         functionCalls.push(part.functionCall);
       } else if ('functionResponse' in part && part.functionResponse) {
@@ -496,13 +361,7 @@ export class OpenAIContentConverter {
       }
     }
 
-    return {
-      thoughtParts,
-      contentParts,
-      functionCalls,
-      functionResponses,
-      mediaParts,
-    };
+    return { textParts, functionCalls, functionResponses, mediaParts };
   }
 
   private extractFunctionResponseContent(response: unknown): string {
@@ -549,29 +408,14 @@ export class OpenAIContentConverter {
    */
   private createMultimodalMessage(
     role: 'user' | 'assistant',
-    parsedParts: Pick<
-      ParsedParts,
-      'contentParts' | 'mediaParts' | 'thoughtParts'
-    >,
-  ): ExtendedChatCompletionMessageParam | null {
-    const { contentParts, mediaParts, thoughtParts } = parsedParts;
-    const reasoningContent = thoughtParts.join('');
-    const content = contentParts.map((text) => ({
-      type: 'text' as const,
-      text,
-    }));
+    parsedParts: Pick<ParsedParts, 'textParts' | 'mediaParts'>,
+  ): OpenAI.Chat.ChatCompletionMessageParam | null {
+    const { textParts, mediaParts } = parsedParts;
+    const content = textParts.map((text) => ({ type: 'text' as const, text }));
 
     // If no media parts, return simple text message
     if (mediaParts.length === 0) {
-      if (content.length === 0) return null;
-      const message: ExtendedChatCompletionMessageParam = { role, content };
-      // Only include reasoning_content if it has actual content
-      if (reasoningContent) {
-        (
-          message as ExtendedChatCompletionAssistantMessageParam
-        ).reasoning_content = reasoningContent;
-      }
-      return message;
+      return content.length > 0 ? { role, content } : null;
     }
 
     // For assistant messages with media, convert to text only
@@ -692,13 +536,6 @@ export class OpenAIContentConverter {
 
     const parts: Part[] = [];
 
-    // Handle reasoning content (thoughts)
-    const reasoningText = (choice.message as ExtendedCompletionMessage)
-      .reasoning_content;
-    if (reasoningText) {
-      parts.push({ text: reasoningText, thought: true });
-    }
-
     // Handle text content
     if (choice.message.content) {
       parts.push({ text: choice.message.content });
@@ -760,8 +597,6 @@ export class OpenAIContentConverter {
         usage.prompt_tokens_details?.cached_tokens ??
         extendedUsage.cached_tokens ??
         0;
-      const thinkingTokens =
-        usage.completion_tokens_details?.reasoning_tokens || 0;
 
       // If we only have total tokens but no breakdown, estimate the split
       // Typically input is ~70% and output is ~30% for most conversations
@@ -779,7 +614,6 @@ export class OpenAIContentConverter {
         candidatesTokenCount: finalCompletionTokens,
         totalTokenCount: totalTokens,
         cachedContentTokenCount: cachedTokens,
-        thoughtsTokenCount: thinkingTokens,
       };
     }
 
@@ -797,12 +631,6 @@ export class OpenAIContentConverter {
 
     if (choice) {
       const parts: Part[] = [];
-
-      const reasoningText = (choice.delta as ExtendedCompletionChunkDelta)
-        ?.reasoning_content;
-      if (reasoningText) {
-        parts.push({ text: reasoningText, thought: true });
-      }
 
       // Handle text content
       if (choice.delta?.content) {
@@ -893,8 +721,6 @@ export class OpenAIContentConverter {
       const promptTokens = usage.prompt_tokens || 0;
       const completionTokens = usage.completion_tokens || 0;
       const totalTokens = usage.total_tokens || 0;
-      const thinkingTokens =
-        usage.completion_tokens_details?.reasoning_tokens || 0;
       // Support both formats: prompt_tokens_details.cached_tokens (OpenAI standard)
       // and cached_tokens (some models return it at top level)
       const extendedUsage = usage as ExtendedCompletionUsage;
@@ -917,13 +743,90 @@ export class OpenAIContentConverter {
       response.usageMetadata = {
         promptTokenCount: finalPromptTokens,
         candidatesTokenCount: finalCompletionTokens,
-        thoughtsTokenCount: thinkingTokens,
         totalTokenCount: totalTokens,
         cachedContentTokenCount: cachedTokens,
       };
     }
 
     return response;
+  }
+
+  /**
+   * Convert Gemini response format to OpenAI chat completion format for logging
+   */
+  convertGeminiResponseToOpenAI(
+    response: GenerateContentResponse,
+  ): OpenAI.Chat.ChatCompletion {
+    const candidate = response.candidates?.[0];
+    const content = candidate?.content;
+
+    let messageContent: string | null = null;
+    const toolCalls: OpenAI.Chat.ChatCompletionMessageToolCall[] = [];
+
+    if (content?.parts) {
+      const textParts: string[] = [];
+
+      for (const part of content.parts) {
+        if ('text' in part && part.text) {
+          textParts.push(part.text);
+        } else if ('functionCall' in part && part.functionCall) {
+          toolCalls.push({
+            id: part.functionCall.id || `call_${toolCalls.length}`,
+            type: 'function' as const,
+            function: {
+              name: part.functionCall.name || '',
+              arguments: JSON.stringify(part.functionCall.args || {}),
+            },
+          });
+        }
+      }
+
+      messageContent = textParts.join('').trimEnd();
+    }
+
+    const choice: OpenAI.Chat.ChatCompletion.Choice = {
+      index: 0,
+      message: {
+        role: 'assistant',
+        content: messageContent,
+        refusal: null,
+      },
+      finish_reason: this.mapGeminiFinishReasonToOpenAI(
+        candidate?.finishReason,
+      ) as OpenAI.Chat.ChatCompletion.Choice['finish_reason'],
+      logprobs: null,
+    };
+
+    if (toolCalls.length > 0) {
+      choice.message.tool_calls = toolCalls;
+    }
+
+    const openaiResponse: OpenAI.Chat.ChatCompletion = {
+      id: response.responseId || `chatcmpl-${Date.now()}`,
+      object: 'chat.completion',
+      created: response.createTime
+        ? Number(response.createTime)
+        : Math.floor(Date.now() / 1000),
+      model: this.model,
+      choices: [choice],
+    };
+
+    // Add usage metadata if available
+    if (response.usageMetadata) {
+      openaiResponse.usage = {
+        prompt_tokens: response.usageMetadata.promptTokenCount || 0,
+        completion_tokens: response.usageMetadata.candidatesTokenCount || 0,
+        total_tokens: response.usageMetadata.totalTokenCount || 0,
+      };
+
+      if (response.usageMetadata.cachedContentTokenCount) {
+        openaiResponse.usage.prompt_tokens_details = {
+          cached_tokens: response.usageMetadata.cachedContentTokenCount,
+        };
+      }
+    }
+
+    return openaiResponse;
   }
 
   /**
@@ -943,24 +846,29 @@ export class OpenAIContentConverter {
     return mapping[openaiReason] || FinishReason.FINISH_REASON_UNSPECIFIED;
   }
 
-  private mapGeminiFinishReasonToOpenAI(
-    geminiReason?: FinishReason,
-  ): 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'function_call' {
-    if (!geminiReason) {
-      return 'stop';
-    }
+  /**
+   * Map Gemini finish reasons to OpenAI finish reasons
+   */
+  private mapGeminiFinishReasonToOpenAI(geminiReason?: unknown): string {
+    if (!geminiReason) return 'stop';
 
     switch (geminiReason) {
-      case FinishReason.STOP:
+      case 'STOP':
+      case 1: // FinishReason.STOP
         return 'stop';
-      case FinishReason.MAX_TOKENS:
+      case 'MAX_TOKENS':
+      case 2: // FinishReason.MAX_TOKENS
         return 'length';
-      case FinishReason.SAFETY:
+      case 'SAFETY':
+      case 3: // FinishReason.SAFETY
         return 'content_filter';
+      case 'RECITATION':
+      case 4: // FinishReason.RECITATION
+        return 'content_filter';
+      case 'OTHER':
+      case 5: // FinishReason.OTHER
+        return 'stop';
       default:
-        if (geminiReason === ('RECITATION' as FinishReason)) {
-          return 'content_filter';
-        }
         return 'stop';
     }
   }
@@ -1131,44 +1039,12 @@ export class OpenAIContentConverter {
         // If the last message is also an assistant message, merge them
         if (lastMessage.role === 'assistant') {
           // Combine content
-          const lastContent = lastMessage.content;
-          const currentContent = message.content;
-
-          // Determine if we should use array format (if either content is an array)
-          const useArrayFormat =
-            Array.isArray(lastContent) || Array.isArray(currentContent);
-
-          let combinedContent:
-            | string
-            | OpenAI.Chat.ChatCompletionContentPart[]
-            | null;
-
-          if (useArrayFormat) {
-            // Convert both to array format and merge
-            const lastParts = Array.isArray(lastContent)
-              ? lastContent
-              : typeof lastContent === 'string' && lastContent
-                ? [{ type: 'text' as const, text: lastContent }]
-                : [];
-
-            const currentParts = Array.isArray(currentContent)
-              ? currentContent
-              : typeof currentContent === 'string' && currentContent
-                ? [{ type: 'text' as const, text: currentContent }]
-                : [];
-
-            combinedContent = [
-              ...lastParts,
-              ...currentParts,
-            ] as OpenAI.Chat.ChatCompletionContentPart[];
-          } else {
-            // Both are strings or null, merge as strings
-            const lastText = typeof lastContent === 'string' ? lastContent : '';
-            const currentText =
-              typeof currentContent === 'string' ? currentContent : '';
-            const mergedText = [lastText, currentText].filter(Boolean).join('');
-            combinedContent = mergedText || null;
-          }
+          const combinedContent = [
+            typeof lastMessage.content === 'string' ? lastMessage.content : '',
+            typeof message.content === 'string' ? message.content : '',
+          ]
+            .filter(Boolean)
+            .join('');
 
           // Combine tool calls
           const lastToolCalls =
@@ -1180,17 +1056,14 @@ export class OpenAIContentConverter {
           // Update the last message with combined data
           (
             lastMessage as OpenAI.Chat.ChatCompletionMessageParam & {
-              content: string | OpenAI.Chat.ChatCompletionContentPart[] | null;
+              content: string | null;
               tool_calls?: OpenAI.Chat.ChatCompletionMessageToolCall[];
             }
           ).content = combinedContent || null;
           if (combinedToolCalls.length > 0) {
             (
               lastMessage as OpenAI.Chat.ChatCompletionMessageParam & {
-                content:
-                  | string
-                  | OpenAI.Chat.ChatCompletionContentPart[]
-                  | null;
+                content: string | null;
                 tool_calls?: OpenAI.Chat.ChatCompletionMessageToolCall[];
               }
             ).tool_calls = combinedToolCalls;

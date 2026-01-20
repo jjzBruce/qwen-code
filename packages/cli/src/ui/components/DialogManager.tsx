@@ -17,6 +17,7 @@ import { AuthDialog } from '../auth/AuthDialog.js';
 import { OpenAIKeyPrompt } from './OpenAIKeyPrompt.js';
 import { EditorSettingsDialog } from './EditorSettingsDialog.js';
 import { WorkspaceMigrationDialog } from './WorkspaceMigrationDialog.js';
+import { ProQuotaDialog } from './ProQuotaDialog.js';
 import { PermissionsModifyTrustDialog } from './PermissionsModifyTrustDialog.js';
 import { ModelDialog } from './ModelDialog.js';
 import { ApprovalModeDialog } from './ApprovalModeDialog.js';
@@ -25,6 +26,7 @@ import { useUIState } from '../contexts/UIStateContext.js';
 import { useUIActions } from '../contexts/UIActionsContext.js';
 import { useConfig } from '../contexts/ConfigContext.js';
 import { useSettings } from '../contexts/SettingsContext.js';
+import { SettingScope } from '../../config/settings.js';
 import { AuthState } from '../types.js';
 import { AuthType } from '@qwen-code/qwen-code-core';
 import process from 'node:process';
@@ -34,7 +36,10 @@ import { WelcomeBackDialog } from './WelcomeBackDialog.js';
 import { ModelSwitchDialog } from './ModelSwitchDialog.js';
 import { AgentCreationWizard } from './subagents/create/AgentCreationWizard.js';
 import { AgentsManagerDialog } from './subagents/manage/AgentsManagerDialog.js';
-import { SessionPicker } from './SessionPicker.js';
+import {
+  QuitConfirmationDialog,
+  QuitChoice,
+} from './QuitConfirmationDialog.js';
 
 interface DialogManagerProps {
   addItem: UseHistoryManagerReturn['addItem'];
@@ -85,6 +90,15 @@ export const DialogManager = ({
       />
     );
   }
+  if (uiState.proQuotaRequest) {
+    return (
+      <ProQuotaDialog
+        failedModel={uiState.proQuotaRequest.failedModel}
+        fallbackModel={uiState.proQuotaRequest.fallbackModel}
+        onChoice={uiActions.handleProQuotaChoice}
+      />
+    );
+  }
   if (uiState.shouldShowIdePrompt) {
     return (
       <IdeIntegrationNudge
@@ -110,6 +124,26 @@ export const DialogManager = ({
     return (
       <LoopDetectionConfirmation
         onComplete={uiState.loopDetectionConfirmationRequest.onComplete}
+      />
+    );
+  }
+  if (uiState.quitConfirmationRequest) {
+    return (
+      <QuitConfirmationDialog
+        onSelect={(choice: QuitChoice) => {
+          if (choice === QuitChoice.CANCEL) {
+            uiState.quitConfirmationRequest?.onConfirm(false, 'cancel');
+          } else if (choice === QuitChoice.QUIT) {
+            uiState.quitConfirmationRequest?.onConfirm(true, 'quit');
+          } else if (choice === QuitChoice.SAVE_AND_QUIT) {
+            uiState.quitConfirmationRequest?.onConfirm(true, 'save_and_quit');
+          } else if (choice === QuitChoice.SUMMARY_AND_QUIT) {
+            uiState.quitConfirmationRequest?.onConfirm(
+              true,
+              'summary_and_quit',
+            );
+          }
+        }}
       />
     );
   }
@@ -201,7 +235,7 @@ export const DialogManager = ({
       return (
         <OpenAIKeyPrompt
           onSubmit={(apiKey, baseUrl, model) => {
-            uiActions.handleAuthSelect(AuthType.USE_OPENAI, {
+            uiActions.handleAuthSelect(AuthType.USE_OPENAI, SettingScope.User, {
               apiKey,
               baseUrl,
               model,
@@ -276,17 +310,6 @@ export const DialogManager = ({
       <AgentsManagerDialog
         onClose={uiActions.closeAgentsManagerDialog}
         config={config}
-      />
-    );
-  }
-
-  if (uiState.isResumeDialogOpen) {
-    return (
-      <SessionPicker
-        sessionService={config.getSessionService()}
-        currentBranch={uiState.branchName}
-        onSelect={uiActions.handleResume}
-        onCancel={uiActions.closeResumeDialog}
       />
     );
   }

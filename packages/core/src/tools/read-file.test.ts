@@ -40,7 +40,6 @@ describe('ReadFileTool', () => {
       getWorkspaceContext: () => createMockWorkspaceContext(tempRootDir),
       storage: {
         getProjectTempDir: () => path.join(tempRootDir, '.temp'),
-        getUserSkillsDir: () => path.join(os.homedir(), '.qwen', 'skills'),
       },
       getTruncateToolOutputThreshold: () => 2500,
       getTruncateToolOutputLines: () => 500,
@@ -143,6 +142,30 @@ describe('ReadFileTool', () => {
           invocation as ToolInvocation<ReadFileToolParams, ToolResult>
         ).getDescription(),
       ).toBe(path.join('sub', 'dir', 'file.txt'));
+    });
+
+    it('should return shortened path when file path is deep', () => {
+      const deepPath = path.join(
+        tempRootDir,
+        'very',
+        'deep',
+        'directory',
+        'structure',
+        'that',
+        'exceeds',
+        'the',
+        'normal',
+        'limit',
+        'file.txt',
+      );
+      const params: ReadFileToolParams = { absolute_path: deepPath };
+      const invocation = tool.build(params);
+      expect(typeof invocation).not.toBe('string');
+      const desc = (
+        invocation as ToolInvocation<ReadFileToolParams, ToolResult>
+      ).getDescription();
+      expect(desc).toContain('...');
+      expect(desc).toContain('file.txt');
     });
 
     it('should handle non-normalized file paths correctly', () => {

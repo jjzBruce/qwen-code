@@ -7,7 +7,7 @@
 import stripAnsi from 'strip-ansi';
 import type { PtyImplementation } from '../utils/getPty.js';
 import { getPty } from '../utils/getPty.js';
-import { spawn as cpSpawn, spawnSync } from 'node:child_process';
+import { spawn as cpSpawn } from 'node:child_process';
 import { TextDecoder } from 'node:util';
 import os from 'node:os';
 import type { IPty } from '@lydell/node-pty';
@@ -98,48 +98,6 @@ const getFullBufferText = (terminal: pkg.Terminal): string => {
   return lines.join('\n').trimEnd();
 };
 
-interface ProcessCleanupStrategy {
-  killPty(pid: number, pty: ActivePty): void;
-  killChildProcesses(pids: Set<number>): void;
-}
-
-const windowsStrategy: ProcessCleanupStrategy = {
-  killPty: (_pid, pty) => {
-    pty.ptyProcess.kill();
-  },
-  killChildProcesses: (pids) => {
-    if (pids.size > 0) {
-      try {
-        const args = ['/f', '/t'];
-        for (const pid of pids) {
-          args.push('/pid', pid.toString());
-        }
-        spawnSync('taskkill', args);
-      } catch {
-        // ignore
-      }
-    }
-  },
-};
-
-const posixStrategy: ProcessCleanupStrategy = {
-  killPty: (pid, _pty) => {
-    process.kill(-pid, 'SIGKILL');
-  },
-  killChildProcesses: (pids) => {
-    for (const pid of pids) {
-      try {
-        process.kill(-pid, 'SIGKILL');
-      } catch {
-        // ignore
-      }
-    }
-  },
-};
-
-const getCleanupStrategy = () =>
-  os.platform() === 'win32' ? windowsStrategy : posixStrategy;
-
 /**
  * A centralized service for executing shell commands with robust process
  * management, cross-platform compatibility, and streaming output capabilities.
@@ -148,29 +106,6 @@ const getCleanupStrategy = () =>
 
 export class ShellExecutionService {
   private static activePtys = new Map<number, ActivePty>();
-  private static activeChildProcesses = new Set<number>();
-
-  static cleanup() {
-    const strategy = getCleanupStrategy();
-    // Cleanup PTYs
-    for (const [pid, pty] of this.activePtys) {
-      try {
-        strategy.killPty(pid, pty);
-      } catch {
-        // ignore
-      }
-    }
-
-    // Cleanup child processes
-    strategy.killChildProcesses(this.activeChildProcesses);
-  }
-
-  static {
-    process.on('exit', () => {
-      ShellExecutionService.cleanup();
-    });
-  }
-
   /**
    * Executes a shell command using `node-pty`, capturing all output and lifecycle events.
    *
@@ -230,7 +165,6 @@ export class ShellExecutionService {
         windowsVerbatimArguments: true,
         shell: isWindows ? true : 'bash',
         detached: !isWindows,
-        windowsHide: isWindows,
         env: {
           ...process.env,
           QWEN_CODE: '1',
@@ -347,13 +281,9 @@ export class ShellExecutionService {
 
         abortSignal.addEventListener('abort', abortHandler, { once: true });
 
-        if (child.pid) {
-          this.activeChildProcesses.add(child.pid);
-        }
-
         child.on('exit', (code, signal) => {
           if (child.pid) {
-            this.activeChildProcesses.delete(child.pid);
+            this.activePtys.delete(child.pid);
           }
           handleExit(code, signal);
         });
@@ -380,7 +310,7 @@ export class ShellExecutionService {
         }
       });
 
-      return { pid: child.pid, result };
+      return { pid: undefined, result };
     } catch (e) {
       const error = e as Error;
       return {

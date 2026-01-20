@@ -16,7 +16,6 @@ import type {
   ToolConfirmationPayload,
   AnyDeclarativeTool,
   AnyToolInvocation,
-  ChatRecordingService,
 } from '../index.js';
 import {
   ToolConfirmationOutcome,
@@ -28,7 +27,6 @@ import {
   ShellTool,
   logToolOutputTruncated,
   ToolOutputTruncatedEvent,
-  InputFormat,
 } from '../index.js';
 import type { Part, PartListUnion } from '@google/genai';
 import { getResponseTextFromParts } from '../utils/generateContentResponseUtilities.js';
@@ -323,10 +321,6 @@ interface CoreToolSchedulerOptions {
   onToolCallsUpdate?: ToolCallsUpdateHandler;
   getPreferredEditor: () => EditorType | undefined;
   onEditorClose: () => void;
-  /**
-   * Optional recording service. If provided, tool results will be recorded.
-   */
-  chatRecordingService?: ChatRecordingService;
 }
 
 export class CoreToolScheduler {
@@ -338,7 +332,6 @@ export class CoreToolScheduler {
   private getPreferredEditor: () => EditorType | undefined;
   private config: Config;
   private onEditorClose: () => void;
-  private chatRecordingService?: ChatRecordingService;
   private isFinalizingToolCalls = false;
   private isScheduling = false;
   private requestQueue: Array<{
@@ -356,7 +349,6 @@ export class CoreToolScheduler {
     this.onToolCallsUpdate = options.onToolCallsUpdate;
     this.getPreferredEditor = options.getPreferredEditor;
     this.onEditorClose = options.onEditorClose;
-    this.chatRecordingService = options.chatRecordingService;
   }
 
   private setStatusInternal(
@@ -824,10 +816,11 @@ export class CoreToolScheduler {
              */
             const shouldAutoDeny =
               !this.config.isInteractive() &&
-              !this.config.getExperimentalZedIntegration() &&
-              this.config.getInputFormat() !== InputFormat.STREAM_JSON;
+              !this.config.getIdeMode() &&
+              !this.config.getExperimentalZedIntegration();
 
             if (shouldAutoDeny) {
+              // Treat as execution denied error, similar to excluded tools
               const errorMessage = `Qwen Code requires permission to use "${reqInfo.name}", but that permission was declined.`;
               this.setStatusInternal(
                 reqInfo.callId,
@@ -916,10 +909,7 @@ export class CoreToolScheduler {
 
   async handleConfirmationResponse(
     callId: string,
-    originalOnConfirm: (
-      outcome: ToolConfirmationOutcome,
-      payload?: ToolConfirmationPayload,
-    ) => Promise<void>,
+    originalOnConfirm: (outcome: ToolConfirmationOutcome) => Promise<void>,
     outcome: ToolConfirmationOutcome,
     signal: AbortSignal,
     payload?: ToolConfirmationPayload,
@@ -928,7 +918,9 @@ export class CoreToolScheduler {
       (c) => c.request.callId === callId && c.status === 'awaiting_approval',
     );
 
-    await originalOnConfirm(outcome, payload);
+    if (toolCall && toolCall.status === 'awaiting_approval') {
+      await originalOnConfirm(outcome);
+    }
 
     if (outcome === ToolConfirmationOutcome.ProceedAlways) {
       await this.autoApproveCompatiblePendingTools(signal, callId);
@@ -937,10 +929,11 @@ export class CoreToolScheduler {
     this.setToolCallOutcome(callId, outcome);
 
     if (outcome === ToolConfirmationOutcome.Cancel || signal.aborted) {
-      // Use custom cancel message from payload if provided, otherwise use default
-      const cancelMessage =
-        payload?.cancelMessage || 'User did not allow tool call';
-      this.setStatusInternal(callId, 'cancelled', cancelMessage);
+      this.setStatusInternal(
+        callId,
+        'cancelled',
+        'User did not allow tool call',
+      );
     } else if (outcome === ToolConfirmationOutcome.ModifyWithEditor) {
       const waitingToolCall = toolCall as WaitingToolCall;
       if (isModifiableDeclarativeTool(waitingToolCall.tool)) {
@@ -998,8 +991,7 @@ export class CoreToolScheduler {
   ): Promise<void> {
     if (
       toolCall.confirmationDetails.type !== 'edit' ||
-      !isModifiableDeclarativeTool(toolCall.tool) ||
-      !payload.newContent
+      !isModifiableDeclarativeTool(toolCall.tool)
     ) {
       return;
     }
@@ -1216,9 +1208,6 @@ export class CoreToolScheduler {
         logToolCall(this.config, new ToolCallEvent(call));
       }
 
-      // Record tool results before notifying completion
-      this.recordToolResults(completedCalls);
-
       if (this.onAllToolCallsComplete) {
         this.isFinalizingToolCalls = true;
         await this.onAllToolCallsComplete(completedCalls);
@@ -1232,33 +1221,6 @@ export class CoreToolScheduler {
           .then(next.resolve)
           .catch(next.reject);
       }
-    }
-  }
-
-  /**
-   * Records tool results to the chat recording service.
-   * This captures both the raw Content (for API reconstruction) and
-   * enriched metadata (for UI recovery).
-   */
-  private recordToolResults(completedCalls: CompletedToolCall[]): void {
-    if (!this.chatRecordingService) return;
-
-    // Collect all response parts from completed calls
-    const responseParts: Part[] = completedCalls.flatMap(
-      (call) => call.response.responseParts,
-    );
-
-    if (responseParts.length === 0) return;
-
-    // Record each tool result individually
-    for (const call of completedCalls) {
-      this.chatRecordingService.recordToolResult(call.response.responseParts, {
-        callId: call.request.callId,
-        status: call.status,
-        resultDisplay: call.response.resultDisplay,
-        error: call.response.error,
-        errorType: call.response.errorType,
-      });
     }
   }
 

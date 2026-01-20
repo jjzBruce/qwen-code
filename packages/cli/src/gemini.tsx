@@ -5,8 +5,14 @@
  */
 
 import type { Config } from '@qwen-code/qwen-code-core';
-import { InputFormat, logUserPrompt } from '@qwen-code/qwen-code-core';
+import {
+  AuthType,
+  getOauthClient,
+  InputFormat,
+  logUserPrompt,
+} from '@qwen-code/qwen-code-core';
 import { render } from 'ink';
+import { randomUUID } from 'node:crypto';
 import dns from 'node:dns';
 import os from 'node:os';
 import { basename } from 'node:path';
@@ -17,11 +23,7 @@ import * as cliConfig from './config/config.js';
 import { loadCliConfig, parseArguments } from './config/config.js';
 import { ExtensionStorage, loadExtensions } from './config/extension.js';
 import type { DnsResolutionOrder, LoadedSettings } from './config/settings.js';
-import {
-  getSettingsWarnings,
-  loadSettings,
-  migrateDeprecatedSettings,
-} from './config/settings.js';
+import { loadSettings, migrateDeprecatedSettings } from './config/settings.js';
 import {
   initializeApp,
   type InitializationResult,
@@ -57,7 +59,6 @@ import { getUserStartupWarnings } from './utils/userStartupWarnings.js';
 import { getCliVersion } from './utils/version.js';
 import { computeWindowTitle } from './utils/windowTitle.js';
 import { validateNonInteractiveAuth } from './validateNonInterActiveAuth.js';
-import { showResumeSessionPicker } from './ui/components/StandaloneSessionPicker.js';
 
 export function validateDnsResolutionOrder(
   order: string | undefined,
@@ -91,7 +92,7 @@ function getNodeMemoryArgs(isDebugMode: boolean): string[] {
     );
   }
 
-  if (process.env['QWEN_CODE_NO_RELAUNCH']) {
+  if (process.env['GEMINI_CLI_NO_RELAUNCH']) {
     return [];
   }
 
@@ -109,7 +110,7 @@ function getNodeMemoryArgs(isDebugMode: boolean): string[] {
 
 import { ExtensionEnablementManager } from './config/extensions/extensionEnablement.js';
 import { loadSandboxConfig } from './config/sandboxConfig.js';
-import { runAcpAgent } from './acp-integration/acpAgent.js';
+import { runZedIntegration } from './zed-integration/zedIntegration.js';
 
 export function setupUnhandledRejectionHandler() {
   let unhandledRejectionOccurred = false;
@@ -157,7 +158,7 @@ export async function startInteractiveUI(
             process.platform === 'win32' || nodeMajorVersion < 20
           }
         >
-          <SessionStatsProvider sessionId={config.getSessionId()}>
+          <SessionStatsProvider>
             <VimModeProvider settings={settings}>
               <AppContainer
                 config={config}
@@ -187,18 +188,16 @@ export async function startInteractiveUI(
     },
   );
 
-  if (!settings.merged.general?.disableUpdateNag) {
-    checkForUpdates()
-      .then((info) => {
-        handleAutoUpdate(info, settings, config.getProjectRoot());
-      })
-      .catch((err) => {
-        // Silently ignore update check errors.
-        if (config.getDebugMode()) {
-          console.error('Update check failed:', err);
-        }
-      });
-  }
+  checkForUpdates()
+    .then((info) => {
+      handleAutoUpdate(info, settings, config.getProjectRoot());
+    })
+    .catch((err) => {
+      // Silently ignore update check errors.
+      if (config.getDebugMode()) {
+        console.error('Update check failed:', err);
+      }
+    });
 
   registerCleanup(() => instance.unmount());
 }
@@ -208,8 +207,9 @@ export async function main() {
   const settings = loadSettings();
   migrateDeprecatedSettings(settings);
   await cleanupCheckpoints();
+  const sessionId = randomUUID();
 
-  let argv = await parseArguments(settings.merged);
+  const argv = await parseArguments(settings.merged);
 
   // Check for invalid input combinations early to prevent crashes
   if (argv.promptInteractive && !process.stdin.isTTY) {
@@ -253,33 +253,33 @@ export async function main() {
         settings.merged,
         [],
         new ExtensionEnablementManager(ExtensionStorage.getUserExtensionsDir()),
+        sessionId,
         argv,
       );
 
-      if (!settings.merged.security?.auth?.useExternal) {
+      if (
+        settings.merged.security?.auth?.selectedType &&
+        !settings.merged.security?.auth?.useExternal
+      ) {
         // Validate authentication here because the sandbox will interfere with the Oauth2 web redirect.
         try {
-          const authType = partialConfig.modelsConfig.getCurrentAuthType();
-          // Fresh users may not have selected/persisted an authType yet.
-          // In that case, defer auth prompting/selection to the main interactive flow.
-          if (authType) {
-            const err = validateAuthMethod(authType, partialConfig);
-            if (err) {
-              throw new Error(err);
-            }
-
-            await partialConfig.refreshAuth(authType);
+          const err = validateAuthMethod(
+            settings.merged.security.auth.selectedType,
+          );
+          if (err) {
+            throw new Error(err);
           }
+
+          await partialConfig.refreshAuth(
+            settings.merged.security.auth.selectedType,
+          );
         } catch (err) {
           console.error('Error authenticating:', err);
           process.exit(1);
         }
       }
-      // For stream-json mode, don't read stdin here - it should be forwarded to the sandbox
-      // and consumed by StreamJsonInputReader inside the container
-      const inputFormat = argv.inputFormat as string | undefined;
       let stdinData = '';
-      if (!process.stdin.isTTY && inputFormat !== 'stream-json') {
+      if (!process.stdin.isTTY) {
         stdinData = await readStdin();
       }
 
@@ -319,18 +319,6 @@ export async function main() {
     }
   }
 
-  // Handle --resume without a session ID by showing the session picker
-  if (argv.resume === '') {
-    const selectedSessionId = await showResumeSessionPicker();
-    if (!selectedSessionId) {
-      // User cancelled or no sessions available
-      process.exit(0);
-    }
-
-    // Update argv with the selected session ID
-    argv = { ...argv, resume: selectedSessionId };
-  }
-
   // We are now past the logic handling potentially launching a child process
   // to run Gemini CLI. It is now safe to perform expensive initialization that
   // may have side effects.
@@ -344,9 +332,9 @@ export async function main() {
       settings.merged,
       extensions,
       extensionEnablementManager,
+      sessionId,
       argv,
     );
-    registerCleanup(() => config.shutdown());
 
     if (config.getListExtensions()) {
       console.log('Installed extensions:');
@@ -386,34 +374,29 @@ export async function main() {
 
     setMaxSizedBoxDebugging(isDebugMode);
 
-    // Check input format early to determine initialization flow
-    const inputFormat =
-      typeof config.getInputFormat === 'function'
-        ? config.getInputFormat()
-        : InputFormat.TEXT;
+    const initializationResult = await initializeApp(config, settings);
 
-    // For stream-json mode, defer config.initialize() until after the initialize control request
-    // For other modes, initialize normally
-    let initializationResult: InitializationResult | undefined;
-    if (inputFormat !== InputFormat.STREAM_JSON) {
-      initializationResult = await initializeApp(config, settings);
+    if (
+      settings.merged.security?.auth?.selectedType ===
+        AuthType.LOGIN_WITH_GOOGLE &&
+      config.isBrowserLaunchSuppressed()
+    ) {
+      // Do oauth before app renders to make copying the link possible.
+      await getOauthClient(settings.merged.security.auth.selectedType, config);
     }
 
     if (config.getExperimentalZedIntegration()) {
-      return runAcpAgent(config, settings, extensions, argv);
+      return runZedIntegration(config, settings, extensions, argv);
     }
 
     let input = config.getQuestion();
     const startupWarnings = [
-      ...new Set([
-        ...(await getStartupWarnings()),
-        ...(await getUserStartupWarnings({
-          workspaceRoot: process.cwd(),
-          useRipgrep: settings.merged.tools?.useRipgrep ?? true,
-          useBuiltinRipgrep: settings.merged.tools?.useBuiltinRipgrep ?? true,
-        })),
-        ...getSettingsWarnings(settings),
-      ]),
+      ...(await getStartupWarnings()),
+      ...(await getUserStartupWarnings({
+        workspaceRoot: process.cwd(),
+        useRipgrep: settings.merged.tools?.useRipgrep ?? true,
+        useBuiltinRipgrep: settings.merged.tools?.useBuiltinRipgrep ?? true,
+      })),
     ];
 
     // Render UI, passing necessary config values. Check that there is no command line question.
@@ -425,15 +408,19 @@ export async function main() {
         settings,
         startupWarnings,
         process.cwd(),
-        initializationResult!,
+        initializationResult,
       );
       return;
     }
 
-    // For non-stream-json mode, initialize config here
-    if (inputFormat !== InputFormat.STREAM_JSON) {
-      await config.initialize();
-    }
+    await config.initialize();
+
+    // Check input format BEFORE reading stdin
+    // In STREAM_JSON mode, stdin should be left for StreamJsonInputReader
+    const inputFormat =
+      typeof config.getInputFormat === 'function'
+        ? config.getInputFormat()
+        : InputFormat.TEXT;
 
     // Only read stdin if NOT in stream-json mode
     // In stream-json mode, stdin is used for protocol messages (control requests, etc.)
@@ -446,6 +433,7 @@ export async function main() {
     }
 
     const nonInteractiveConfig = await validateNonInteractiveAuth(
+      settings.merged.security?.auth?.selectedType,
       settings.merged.security?.auth?.useExternal,
       config,
       settings,
@@ -481,7 +469,7 @@ export async function main() {
     });
 
     if (config.getDebugMode()) {
-      console.log('Session ID: %s', config.getSessionId());
+      console.log('Session ID: %s', sessionId);
     }
 
     await runNonInteractive(nonInteractiveConfig, settings, input, prompt_id);

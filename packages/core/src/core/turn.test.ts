@@ -36,6 +36,13 @@ vi.mock('../utils/errorReporting', () => ({
   reportError: vi.fn(),
 }));
 
+// Use the actual implementation from partUtils now that it's provided.
+vi.mock('../utils/generateContentResponseUtilities', () => ({
+  getResponseText: (resp: GenerateContentResponse) =>
+    resp.candidates?.[0]?.content?.parts?.map((part) => part.text).join('') ||
+    undefined,
+}));
+
 describe('Turn', () => {
   let turn: Turn;
   // Define a type for the mocked Chat instance for clarity
@@ -111,98 +118,6 @@ describe('Turn', () => {
         { type: GeminiEventType.Content, value: ' world' },
       ]);
       expect(turn.getDebugResponses().length).toBe(2);
-    });
-
-    it('should emit Thought events when a thought part is present', async () => {
-      const mockResponseStream = (async function* () {
-        yield {
-          type: StreamEventType.CHUNK,
-          value: {
-            candidates: [
-              {
-                content: {
-                  role: 'model',
-                  parts: [
-                    { thought: true, text: 'reasoning...' },
-                    { text: 'final answer' },
-                  ],
-                },
-              },
-            ],
-          } as GenerateContentResponse,
-        };
-      })();
-      mockSendMessageStream.mockResolvedValue(mockResponseStream);
-
-      const events = [];
-      const reqParts: Part[] = [{ text: 'Hi' }];
-      for await (const event of turn.run(
-        'test-model',
-        reqParts,
-        new AbortController().signal,
-      )) {
-        events.push(event);
-      }
-
-      expect(events).toEqual([
-        {
-          type: GeminiEventType.Thought,
-          value: { subject: '', description: 'reasoning...' },
-        },
-        { type: GeminiEventType.Content, value: 'final answer' },
-      ]);
-    });
-
-    it('should emit thought descriptions per incoming chunk', async () => {
-      const mockResponseStream = (async function* () {
-        yield {
-          type: StreamEventType.CHUNK,
-          value: {
-            candidates: [
-              {
-                content: {
-                  role: 'model',
-                  parts: [{ thought: true, text: 'part1' }],
-                },
-              },
-            ],
-          } as GenerateContentResponse,
-        };
-        yield {
-          type: StreamEventType.CHUNK,
-          value: {
-            candidates: [
-              {
-                content: {
-                  role: 'model',
-                  parts: [{ thought: true, text: 'part2' }],
-                },
-              },
-            ],
-          } as GenerateContentResponse,
-        };
-      })();
-      mockSendMessageStream.mockResolvedValue(mockResponseStream);
-
-      const events = [];
-      for await (const event of turn.run(
-        'test-model',
-        [{ text: 'Hi' }],
-        new AbortController().signal,
-      )) {
-        events.push(event);
-      }
-
-      expect(events).toEqual([
-        {
-          type: GeminiEventType.Thought,
-          value: { subject: '', description: 'part1' },
-        },
-        {
-          type: GeminiEventType.Thought,
-          value: { subject: '', description: 'part2' },
-        },
-      ]);
     });
 
     it('should yield tool_call_request events for function calls', async () => {

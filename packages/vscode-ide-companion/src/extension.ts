@@ -14,10 +14,6 @@ import {
   IDE_DEFINITIONS,
   type IdeInfo,
 } from '@qwen-code/qwen-code-core/src/ide/detect-ide.js';
-import { WebViewProvider } from './webview/WebViewProvider.js';
-import { registerNewCommands } from './commands/index.js';
-import { ReadonlyFileSystemProvider } from './services/readonlyFileSystemProvider.js';
-import { isWindows } from './utils/platform.js';
 
 const CLI_IDE_COMPANION_IDENTIFIER = 'qwenlm.qwen-code-vscode-ide-companion';
 const INFO_MESSAGE_SHOWN_KEY = 'qwenCodeInfoMessageShown';
@@ -35,7 +31,6 @@ const HIDE_INSTALLATION_GREETING_IDES: ReadonlySet<IdeInfo['name']> = new Set([
 
 let ideServer: IDEServer;
 let logger: vscode.OutputChannel;
-let webViewProviders: WebViewProvider[] = []; // Track multiple chat tabs
 
 let log: (message: string) => void = () => {};
 
@@ -112,89 +107,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   checkForUpdates(context, log);
 
-  // Create and register readonly file system provider
-  // The provider registers itself as a singleton in the constructor
-  const readonlyProvider = new ReadonlyFileSystemProvider();
-  context.subscriptions.push(
-    vscode.workspace.registerFileSystemProvider(
-      ReadonlyFileSystemProvider.getScheme(),
-      readonlyProvider,
-      { isCaseSensitive: true, isReadonly: true },
-    ),
-    readonlyProvider,
-  );
-  log('Readonly file system provider registered');
-
   const diffContentProvider = new DiffContentProvider();
-  const diffManager = new DiffManager(
-    log,
-    diffContentProvider,
-    // Delay when any chat tab has a pending permission drawer
-    () => webViewProviders.some((p) => p.hasPendingPermission()),
-    // Suppress diffs when active mode is auto or yolo in any chat tab
-    () => {
-      const providers = webViewProviders.filter(
-        (p) => typeof p.shouldSuppressDiff === 'function',
-      );
-      if (providers.length === 0) {
-        return false;
-      }
-      return providers.every((p) => p.shouldSuppressDiff());
-    },
-  );
-
-  // Helper function to create a new WebView provider instance
-  const createWebViewProvider = (): WebViewProvider => {
-    const provider = new WebViewProvider(context, context.extensionUri);
-    webViewProviders.push(provider);
-    return provider;
-  };
-
-  // Register WebView panel serializer for persistence across reloads
-  context.subscriptions.push(
-    vscode.window.registerWebviewPanelSerializer('qwenCode.chat', {
-      async deserializeWebviewPanel(
-        webviewPanel: vscode.WebviewPanel,
-        state: unknown,
-      ) {
-        console.log(
-          '[Extension] Deserializing WebView panel with state:',
-          state,
-        );
-
-        // Create a new provider for the restored panel
-        const provider = createWebViewProvider();
-        console.log('[Extension] Provider created for deserialization');
-
-        // Restore state if available BEFORE restoring the panel
-        if (state && typeof state === 'object') {
-          console.log('[Extension] Restoring state:', state);
-          provider.restoreState(
-            state as {
-              conversationId: string | null;
-              agentInitialized: boolean;
-            },
-          );
-        } else {
-          console.log('[Extension] No state to restore or invalid state');
-        }
-
-        await provider.restorePanel(webviewPanel);
-        console.log('[Extension] Panel restore completed');
-
-        log('WebView panel restored from serialization');
-      },
-    }),
-  );
-
-  // Register newly added commands via commands module
-  registerNewCommands(
-    context,
-    log,
-    diffManager,
-    () => webViewProviders,
-    createWebViewProvider,
-  );
+  const diffManager = new DiffManager(log, diffContentProvider);
 
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument((doc) => {
@@ -206,52 +120,16 @@ export async function activate(context: vscode.ExtensionContext) {
       DIFF_SCHEME,
       diffContentProvider,
     ),
-    (vscode.commands.registerCommand('qwen.diff.accept', (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand('qwen.diff.accept', (uri?: vscode.Uri) => {
       const docUri = uri ?? vscode.window.activeTextEditor?.document.uri;
       if (docUri && docUri.scheme === DIFF_SCHEME) {
         diffManager.acceptDiff(docUri);
       }
-      // If WebView is requesting permission, actively select an allow option (prefer once)
-      try {
-        for (const provider of webViewProviders) {
-          if (provider?.hasPendingPermission()) {
-            provider.respondToPendingPermission('allow');
-          }
-        }
-      } catch (err) {
-        console.warn('[Extension] Auto-allow on diff.accept failed:', err);
-      }
-      console.log('[Extension] Diff accepted');
     }),
     vscode.commands.registerCommand('qwen.diff.cancel', (uri?: vscode.Uri) => {
       const docUri = uri ?? vscode.window.activeTextEditor?.document.uri;
       if (docUri && docUri.scheme === DIFF_SCHEME) {
         diffManager.cancelDiff(docUri);
-      }
-      // If WebView is requesting permission, actively select reject/cancel
-      try {
-        for (const provider of webViewProviders) {
-          if (provider?.hasPendingPermission()) {
-            provider.respondToPendingPermission('cancel');
-          }
-        }
-      } catch (err) {
-        console.warn('[Extension] Auto-reject on diff.cancel failed:', err);
-      }
-      console.log('[Extension] Diff cancelled');
-    })),
-    vscode.commands.registerCommand('qwen.diff.closeAll', async () => {
-      try {
-        await diffManager.closeAll();
-      } catch (err) {
-        console.warn('[Extension] qwen.diff.closeAll failed:', err);
-      }
-    }),
-    vscode.commands.registerCommand('qwen.diff.suppressBriefly', async () => {
-      try {
-        diffManager.suppressFor(1200);
-      } catch (err) {
-        console.warn('[Extension] qwen.diff.suppressBriefly failed:', err);
       }
     }),
   );
@@ -282,74 +160,34 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
       ideServer.syncEnvVars();
     }),
-    vscode.commands.registerCommand(
-      'qwen-code.runQwenCode',
-      async (
-        location?:
-          | vscode.TerminalLocation
-          | vscode.TerminalEditorLocationOptions,
-      ) => {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-          vscode.window.showInformationMessage(
-            'No folder open. Please open a folder to run Qwen Code.',
-          );
-          return;
-        }
+    vscode.commands.registerCommand('qwen-code.runQwenCode', async () => {
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      if (!workspaceFolders || workspaceFolders.length === 0) {
+        vscode.window.showInformationMessage(
+          'No folder open. Please open a folder to run Qwen Code.',
+        );
+        return;
+      }
 
-        let selectedFolder: vscode.WorkspaceFolder | undefined;
-        if (workspaceFolders.length === 1) {
-          selectedFolder = workspaceFolders[0];
-        } else {
-          selectedFolder = await vscode.window.showWorkspaceFolderPick({
-            placeHolder: 'Select a folder to run Qwen Code in',
-          });
-        }
+      let selectedFolder: vscode.WorkspaceFolder | undefined;
+      if (workspaceFolders.length === 1) {
+        selectedFolder = workspaceFolders[0];
+      } else {
+        selectedFolder = await vscode.window.showWorkspaceFolderPick({
+          placeHolder: 'Select a folder to run Qwen Code in',
+        });
+      }
 
-        if (selectedFolder) {
-          const cliEntry = vscode.Uri.joinPath(
-            context.extensionUri,
-            'dist',
-            'qwen-cli',
-            'cli.js',
-          ).fsPath;
-          const execPath = process.execPath;
-          const lowerExecPath = execPath.toLowerCase();
-          const needsElectronRunAsNode =
-            lowerExecPath.includes('code') ||
-            lowerExecPath.includes('electron');
-
-          let qwenCmd: string;
-          const terminalOptions: vscode.TerminalOptions = {
-            name: `Qwen Code (${selectedFolder.name})`,
-            cwd: selectedFolder.uri.fsPath,
-            location,
-          };
-
-          if (isWindows) {
-            // Use system Node via cmd.exe; avoid PowerShell parsing issues
-            const quoteCmd = (s: string) => `"${s.replace(/"/g, '""')}"`;
-            const cliQuoted = quoteCmd(cliEntry);
-            // TODO: @yiliang114, temporarily run through node, and later hope to decouple from the local node
-            qwenCmd = `node ${cliQuoted}`;
-            terminalOptions.shellPath = process.env.ComSpec;
-          } else {
-            const quotePosix = (s: string) => `"${s.replace(/"/g, '\\"')}"`;
-            const baseCmd = `${quotePosix(execPath)} ${quotePosix(cliEntry)}`;
-            if (needsElectronRunAsNode) {
-              // macOS Electron helper needs ELECTRON_RUN_AS_NODE=1;
-              qwenCmd = `ELECTRON_RUN_AS_NODE=1 ${baseCmd}`;
-            } else {
-              qwenCmd = baseCmd;
-            }
-          }
-
-          const terminal = vscode.window.createTerminal(terminalOptions);
-          terminal.show();
-          terminal.sendText(qwenCmd);
-        }
-      },
-    ),
+      if (selectedFolder) {
+        const qwenCmd = 'qwen';
+        const terminal = vscode.window.createTerminal({
+          name: `Qwen Code (${selectedFolder.name})`,
+          cwd: selectedFolder.uri.fsPath,
+        });
+        terminal.show();
+        terminal.sendText(qwenCmd);
+      }
+    }),
     vscode.commands.registerCommand('qwen-code.showNotices', async () => {
       const noticePath = vscode.Uri.joinPath(
         context.extensionUri,
@@ -366,11 +204,6 @@ export async function deactivate(): Promise<void> {
     if (ideServer) {
       await ideServer.stop();
     }
-    // Dispose all WebView providers
-    webViewProviders.forEach((provider) => {
-      provider.dispose();
-    });
-    webViewProviders = [];
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`Failed to stop IDE server during deactivation: ${message}`);

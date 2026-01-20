@@ -8,7 +8,6 @@ import type OpenAI from 'openai';
 import type { Config } from '../../../config/config.js';
 import type { ContentGeneratorConfig } from '../../contentGenerator.js';
 import { DefaultOpenAICompatibleProvider } from './default.js';
-import type { GenerateContentConfig } from '@google/genai';
 
 export class DeepSeekOpenAICompatibleProvider extends DefaultOpenAICompatibleProvider {
   constructor(
@@ -75,12 +74,6 @@ export class DeepSeekOpenAICompatibleProvider extends DefaultOpenAICompatiblePro
     return {
       ...baseRequest,
       messages,
-    };
-  }
-
-  override getDefaultGenerationConfig(): GenerateContentConfig {
-    return {
-      temperature: 0,
     };
   }
 }

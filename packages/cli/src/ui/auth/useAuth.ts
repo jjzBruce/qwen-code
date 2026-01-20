@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { Config, ModelProvidersConfig } from '@qwen-code/qwen-code-core';
+import type { Config } from '@qwen-code/qwen-code-core';
 import {
   AuthEvent,
   AuthType,
+  clearCachedCredentialFile,
   getErrorMessage,
   logAuth,
 } from '@qwen-code/qwen-code-core';
 import { useCallback, useEffect, useState } from 'react';
-import type { LoadedSettings } from '../../config/settings.js';
-import { getPersistScopeForModelSelection } from '../../config/modelProvidersScope.js';
+import type { LoadedSettings, SettingScope } from '../../config/settings.js';
 import type { OpenAICredentials } from '../components/OpenAIKeyPrompt.js';
 import { useQwenAuth } from '../hooks/useQwenAuth.js';
 import { AuthState, MessageType } from '../types.js';
@@ -27,7 +27,8 @@ export const useAuthCommand = (
   config: Config,
   addItem: (item: Omit<HistoryItem, 'id'>, timestamp: number) => void,
 ) => {
-  const unAuthenticated = config.getAuthType() === undefined;
+  const unAuthenticated =
+    settings.merged.security?.auth?.selectedType === undefined;
 
   const [authState, setAuthState] = useState<AuthState>(
     unAuthenticated ? AuthState.Updating : AuthState.Unauthenticated,
@@ -80,46 +81,35 @@ export const useAuthCommand = (
   );
 
   const handleAuthSuccess = useCallback(
-    async (authType: AuthType, credentials?: OpenAICredentials) => {
+    async (
+      authType: AuthType,
+      scope: SettingScope,
+      credentials?: OpenAICredentials,
+    ) => {
       try {
-        const authTypeScope = getPersistScopeForModelSelection(settings);
-
-        // Persist authType
-        settings.setValue(
-          authTypeScope,
-          'security.auth.selectedType',
-          authType,
-        );
-
-        // Persist model from ContentGenerator config (handles fallback cases)
-        // This ensures that when syncAfterAuthRefresh falls back to default model,
-        // it gets persisted to settings.json
-        const contentGeneratorConfig = config.getContentGeneratorConfig();
-        if (contentGeneratorConfig?.model) {
-          settings.setValue(
-            authTypeScope,
-            'model.name',
-            contentGeneratorConfig.model,
-          );
-        }
+        settings.setValue(scope, 'security.auth.selectedType', authType);
 
         // Only update credentials if not switching to QWEN_OAUTH,
         // so that OpenAI credentials are preserved when switching to QWEN_OAUTH.
         if (authType !== AuthType.QWEN_OAUTH && credentials) {
           if (credentials?.apiKey != null) {
             settings.setValue(
-              authTypeScope,
+              scope,
               'security.auth.apiKey',
               credentials.apiKey,
             );
           }
           if (credentials?.baseUrl != null) {
             settings.setValue(
-              authTypeScope,
+              scope,
               'security.auth.baseUrl',
               credentials.baseUrl,
             );
           }
+          if (credentials?.model != null) {
+            settings.setValue(scope, 'model.name', credentials.model);
+          }
+          await clearCachedCredentialFile();
         }
       } catch (error) {
         handleAuthFailure(error);
@@ -151,10 +141,14 @@ export const useAuthCommand = (
   );
 
   const performAuth = useCallback(
-    async (authType: AuthType, credentials?: OpenAICredentials) => {
+    async (
+      authType: AuthType,
+      scope: SettingScope,
+      credentials?: OpenAICredentials,
+    ) => {
       try {
         await config.refreshAuth(authType);
-        handleAuthSuccess(authType, credentials);
+        handleAuthSuccess(authType, scope, credentials);
       } catch (e) {
         handleAuthFailure(e);
       }
@@ -162,48 +156,15 @@ export const useAuthCommand = (
     [config, handleAuthSuccess, handleAuthFailure],
   );
 
-  const isProviderManagedModel = useCallback(
-    (authType: AuthType, modelId: string | undefined) => {
-      if (!modelId) {
-        return false;
-      }
-
-      const modelProviders = settings.merged.modelProviders as
-        | ModelProvidersConfig
-        | undefined;
-      if (!modelProviders) {
-        return false;
-      }
-      const providerModels = modelProviders[authType];
-      if (!Array.isArray(providerModels)) {
-        return false;
-      }
-      return providerModels.some(
-        (providerModel) => providerModel.id === modelId,
-      );
-    },
-    [settings],
-  );
-
   const handleAuthSelect = useCallback(
-    async (authType: AuthType | undefined, credentials?: OpenAICredentials) => {
+    async (
+      authType: AuthType | undefined,
+      scope: SettingScope,
+      credentials?: OpenAICredentials,
+    ) => {
       if (!authType) {
         setIsAuthDialogOpen(false);
         setAuthError(null);
-        return;
-      }
-
-      if (
-        authType === AuthType.USE_OPENAI &&
-        credentials?.model &&
-        isProviderManagedModel(authType, credentials.model)
-      ) {
-        onAuthError(
-          t(
-            'Model "{{modelName}}" is managed via settings.modelProviders. Please complete the fields in settings, or use another model id.',
-            { modelName: credentials.model },
-          ),
-        );
         return;
       }
 
@@ -219,14 +180,14 @@ export const useAuthCommand = (
             baseUrl: credentials.baseUrl,
             model: credentials.model,
           });
-          await performAuth(authType, credentials);
+          await performAuth(authType, scope, credentials);
         }
         return;
       }
 
-      await performAuth(authType);
+      await performAuth(authType, scope);
     },
-    [config, performAuth, isProviderManagedModel, onAuthError],
+    [config, performAuth],
   );
 
   const openAuthDialog = useCallback(() => {
@@ -264,26 +225,16 @@ export const useAuthCommand = (
     const defaultAuthType = process.env['QWEN_DEFAULT_AUTH_TYPE'];
     if (
       defaultAuthType &&
-      ![
-        AuthType.QWEN_OAUTH,
-        AuthType.USE_OPENAI,
-        AuthType.USE_ANTHROPIC,
-        AuthType.USE_GEMINI,
-        AuthType.USE_VERTEX_AI,
-      ].includes(defaultAuthType as AuthType)
+      ![AuthType.QWEN_OAUTH, AuthType.USE_OPENAI].includes(
+        defaultAuthType as AuthType,
+      )
     ) {
       onAuthError(
         t(
           'Invalid QWEN_DEFAULT_AUTH_TYPE value: "{{value}}". Valid values are: {{validValues}}',
           {
             value: defaultAuthType,
-            validValues: [
-              AuthType.QWEN_OAUTH,
-              AuthType.USE_OPENAI,
-              AuthType.USE_ANTHROPIC,
-              AuthType.USE_GEMINI,
-              AuthType.USE_VERTEX_AI,
-            ].join(', '),
+            validValues: [AuthType.QWEN_OAUTH, AuthType.USE_OPENAI].join(', '),
           },
         ),
       );

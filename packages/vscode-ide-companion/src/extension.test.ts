@@ -40,9 +40,6 @@ vi.mock('vscode', () => ({
     },
     showTextDocument: vi.fn(),
     showWorkspaceFolderPick: vi.fn(),
-    registerWebviewPanelSerializer: vi.fn(() => ({
-      dispose: vi.fn(),
-    })),
   },
   workspace: {
     workspaceFolders: [],
@@ -50,9 +47,6 @@ vi.mock('vscode', () => ({
     registerTextDocumentContentProvider: vi.fn(),
     onDidChangeWorkspaceFolders: vi.fn(),
     onDidGrantWorkspaceTrust: vi.fn(),
-    registerFileSystemProvider: vi.fn(() => ({
-      dispose: vi.fn(),
-    })),
   },
   commands: {
     registerCommand: vi.fn(),

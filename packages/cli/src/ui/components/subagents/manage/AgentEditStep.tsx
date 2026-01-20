@@ -69,10 +69,7 @@ export function EditOptionsStep({
       if (selectedValue === 'editor') {
         // Launch editor directly
         try {
-          if (!selectedAgent.filePath) {
-            throw new Error('Agent has no file path');
-          }
-          await launchEditor(selectedAgent.filePath);
+          await launchEditor(selectedAgent?.filePath);
         } catch (err) {
           setError(
             t('Failed to launch editor: {{error}}', {

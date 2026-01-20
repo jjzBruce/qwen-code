@@ -7,13 +7,11 @@
 import {
   ApprovalMode,
   checkCommandPermissions,
-  doesToolInvocationMatch,
   escapeShellArg,
   getShellConfiguration,
   ShellExecutionService,
   flatMapTextParts,
 } from '@qwen-code/qwen-code-core';
-import type { AnyToolInvocation } from '@qwen-code/qwen-code-core';
 
 import type { CommandContext } from '../../ui/commands/types.js';
 import type { IPromptProcessor, PromptPipelineContent } from './types.js';
@@ -126,15 +124,6 @@ export class ShellProcessor implements IPromptProcessor {
       // Security check on the final, escaped command string.
       const { allAllowed, disallowedCommands, blockReason, isHardDenial } =
         checkCommandPermissions(command, config, sessionShellAllowlist);
-      const allowedTools = config.getAllowedTools() || [];
-      const invocation = {
-        params: { command },
-      } as AnyToolInvocation;
-      const isAllowedBySettings = doesToolInvocationMatch(
-        'run_shell_command',
-        invocation,
-        allowedTools,
-      );
 
       if (!allAllowed) {
         if (isHardDenial) {
@@ -143,17 +132,10 @@ export class ShellProcessor implements IPromptProcessor {
           );
         }
 
-        // If the command is allowed by settings, skip confirmation.
-        if (isAllowedBySettings) {
-          continue;
-        }
-
         // If not a hard denial, respect YOLO mode and auto-approve.
-        if (config.getApprovalMode() === ApprovalMode.YOLO) {
-          continue;
+        if (config.getApprovalMode() !== ApprovalMode.YOLO) {
+          disallowedCommands.forEach((uc) => commandsToConfirm.add(uc));
         }
-
-        disallowedCommands.forEach((uc) => commandsToConfirm.add(uc));
       }
     }
 

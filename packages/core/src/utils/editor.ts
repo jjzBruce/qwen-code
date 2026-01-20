@@ -36,7 +36,7 @@ interface DiffCommand {
   args: string[];
 }
 
-export function commandExists(cmd: string): boolean {
+function commandExists(cmd: string): boolean {
   try {
     execSync(
       process.platform === 'win32' ? `where.exe ${cmd}` : `command -v ${cmd}`,
@@ -52,7 +52,7 @@ export function commandExists(cmd: string): boolean {
  * Editor command configurations for different platforms.
  * Each editor can have multiple possible command names, listed in order of preference.
  */
-export const editorCommands: Record<
+const editorCommands: Record<
   EditorType,
   { win32: string[]; default: string[] }
 > = {

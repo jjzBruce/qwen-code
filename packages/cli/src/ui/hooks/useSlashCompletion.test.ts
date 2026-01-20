@@ -186,11 +186,7 @@ describe('useSlashCompletion', () => {
           altNames: ['usage'],
           description: 'check session stats. Usage: /stats [model|tools]',
         }),
-        createTestCommand({
-          name: 'clear',
-          altNames: ['reset', 'new'],
-          description: 'Clear the screen',
-        }),
+        createTestCommand({ name: 'clear', description: 'Clear the screen' }),
         createTestCommand({
           name: 'memory',
           description: 'Manage memory',
@@ -211,13 +207,7 @@ describe('useSlashCompletion', () => {
 
       expect(result.current.suggestions.length).toBe(slashCommands.length);
       expect(result.current.suggestions.map((s) => s.label)).toEqual(
-        expect.arrayContaining([
-          'help (?)',
-          'clear (reset, new)',
-          'memory',
-          'chat',
-          'stats (usage)',
-        ]),
+        expect.arrayContaining(['help', 'clear', 'memory', 'chat', 'stats']),
       );
     });
 
@@ -266,7 +256,7 @@ describe('useSlashCompletion', () => {
       await waitFor(() => {
         expect(result.current.suggestions).toEqual([
           {
-            label: 'stats (usage)',
+            label: 'stats',
             value: 'stats',
             description: 'check session stats. Usage: /stats [model|tools]',
             commandKind: CommandKind.BUILT_IN,
@@ -522,7 +512,11 @@ describe('useSlashCompletion', () => {
 
   describe('Argument Completion', () => {
     it('should call the command.completion function for argument suggestions', async () => {
-      const availableTags = ['--project', '--global'];
+      const availableTags = [
+        'my-chat-tag-1',
+        'my-chat-tag-2',
+        'another-channel',
+      ];
       const mockCompletionFn = vi
         .fn()
         .mockImplementation(
@@ -532,12 +526,12 @@ describe('useSlashCompletion', () => {
 
       const slashCommands = [
         createTestCommand({
-          name: 'memory',
-          description: 'Manage memory',
+          name: 'chat',
+          description: 'Manage chat history',
           subCommands: [
             createTestCommand({
-              name: 'show',
-              description: 'Show memory',
+              name: 'resume',
+              description: 'Resume a saved chat',
               completion: mockCompletionFn,
             }),
           ],
@@ -547,7 +541,7 @@ describe('useSlashCompletion', () => {
       const { result } = renderHook(() =>
         useTestHarnessForSlashCompletion(
           true,
-          '/memory show --project',
+          '/chat resume my-ch',
           slashCommands,
           mockCommandContext,
         ),
@@ -557,57 +551,19 @@ describe('useSlashCompletion', () => {
         expect(mockCompletionFn).toHaveBeenCalledWith(
           expect.objectContaining({
             invocation: {
-              raw: '/memory show --project',
-              name: 'show',
-              args: '--project',
+              raw: '/chat resume my-ch',
+              name: 'resume',
+              args: 'my-ch',
             },
           }),
-          '--project',
+          'my-ch',
         );
       });
 
       await waitFor(() => {
         expect(result.current.suggestions).toEqual([
-          { label: '--project', value: '--project' },
-        ]);
-      });
-    });
-
-    it('should map completion items with descriptions for argument suggestions', async () => {
-      const mockCompletionFn = vi.fn().mockResolvedValue([
-        { value: 'pdf', description: 'Create PDF documents' },
-        { value: 'xlsx', description: 'Work with spreadsheets' },
-      ]);
-
-      const slashCommands = [
-        createTestCommand({
-          name: 'skills',
-          description: 'List available skills',
-          completion: mockCompletionFn,
-        }),
-      ];
-
-      const { result } = renderHook(() =>
-        useTestHarnessForSlashCompletion(
-          true,
-          '/skills ',
-          slashCommands,
-          mockCommandContext,
-        ),
-      );
-
-      await waitFor(() => {
-        expect(result.current.suggestions).toEqual([
-          {
-            label: 'pdf',
-            value: 'pdf',
-            description: 'Create PDF documents',
-          },
-          {
-            label: 'xlsx',
-            value: 'xlsx',
-            description: 'Work with spreadsheets',
-          },
+          { label: 'my-chat-tag-1', value: 'my-chat-tag-1' },
+          { label: 'my-chat-tag-2', value: 'my-chat-tag-2' },
         ]);
       });
     });
@@ -619,12 +575,12 @@ describe('useSlashCompletion', () => {
 
       const slashCommands = [
         createTestCommand({
-          name: 'workspace',
-          description: 'Manage workspaces',
+          name: 'chat',
+          description: 'Manage chat history',
           subCommands: [
             createTestCommand({
-              name: 'switch',
-              description: 'Switch workspace',
+              name: 'resume',
+              description: 'Resume a saved chat',
               completion: mockCompletionFn,
             }),
           ],
@@ -634,7 +590,7 @@ describe('useSlashCompletion', () => {
       const { result } = renderHook(() =>
         useTestHarnessForSlashCompletion(
           true,
-          '/workspace switch ',
+          '/chat resume ',
           slashCommands,
           mockCommandContext,
         ),
@@ -644,8 +600,8 @@ describe('useSlashCompletion', () => {
         expect(mockCompletionFn).toHaveBeenCalledWith(
           expect.objectContaining({
             invocation: {
-              raw: '/workspace switch',
-              name: 'switch',
+              raw: '/chat resume',
+              name: 'resume',
               args: '',
             },
           }),
@@ -662,12 +618,12 @@ describe('useSlashCompletion', () => {
       const completionFn = vi.fn().mockResolvedValue(null);
       const slashCommands = [
         createTestCommand({
-          name: 'workspace',
-          description: 'Manage workspaces',
+          name: 'chat',
+          description: 'Manage chat history',
           subCommands: [
             createTestCommand({
-              name: 'switch',
-              description: 'Switch workspace',
+              name: 'resume',
+              description: 'Resume a saved chat',
               completion: completionFn,
             }),
           ],
@@ -677,7 +633,7 @@ describe('useSlashCompletion', () => {
       const { result } = renderHook(() =>
         useTestHarnessForSlashCompletion(
           true,
-          '/workspace switch ',
+          '/chat resume ',
           slashCommands,
           mockCommandContext,
         ),

@@ -240,7 +240,7 @@ describe('CoreToolScheduler', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -256,7 +256,6 @@ describe('CoreToolScheduler', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null, // No client needed for these tests
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -318,7 +317,7 @@ describe('CoreToolScheduler', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -334,7 +333,6 @@ describe('CoreToolScheduler', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null,
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -497,7 +495,7 @@ describe('CoreToolScheduler', () => {
         getExcludeTools: () => ['write_file', 'edit', 'run_shell_command'],
         getContentGeneratorConfig: () => ({
           model: 'test-model',
-          authType: 'gemini',
+          authType: 'oauth-personal',
         }),
         getShellExecutionConfig: () => ({
           terminalWidth: 90,
@@ -513,7 +511,6 @@ describe('CoreToolScheduler', () => {
         getUseSmartEdit: () => false,
         getUseModelRouter: () => false,
         getGeminiClient: () => null,
-        getChatRecordingService: () => undefined,
       } as unknown as Config;
 
       const scheduler = new CoreToolScheduler({
@@ -584,7 +581,7 @@ describe('CoreToolScheduler', () => {
         getExcludeTools: () => ['write_file', 'edit'], // Different excluded tools
         getContentGeneratorConfig: () => ({
           model: 'test-model',
-          authType: 'gemini',
+          authType: 'oauth-personal',
         }),
         getShellExecutionConfig: () => ({
           terminalWidth: 90,
@@ -600,7 +597,6 @@ describe('CoreToolScheduler', () => {
         getUseSmartEdit: () => false,
         getUseModelRouter: () => false,
         getGeminiClient: () => null,
-        getChatRecordingService: () => undefined,
       } as unknown as Config;
 
       const scheduler = new CoreToolScheduler({
@@ -674,7 +670,7 @@ describe('CoreToolScheduler with payload', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -693,7 +689,6 @@ describe('CoreToolScheduler with payload', () => {
       isInteractive: () => true, // Required to prevent auto-denial of tool calls
       getIdeMode: () => false,
       getExperimentalZedIntegration: () => false,
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1001,7 +996,7 @@ describe('CoreToolScheduler edit cancellation', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -1017,7 +1012,6 @@ describe('CoreToolScheduler edit cancellation', () => {
       isInteractive: () => true, // Required to prevent auto-denial of tool calls
       getIdeMode: () => false,
       getExperimentalZedIntegration: () => false,
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1108,7 +1102,7 @@ describe('CoreToolScheduler YOLO mode', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -1124,7 +1118,6 @@ describe('CoreToolScheduler YOLO mode', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null, // No client needed for these tests
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1258,14 +1251,13 @@ describe('CoreToolScheduler cancellation during executing with live output', () 
       getApprovalMode: () => ApprovalMode.DEFAULT,
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getToolRegistry: () => mockToolRegistry,
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
         terminalHeight: 30,
       }),
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1350,7 +1342,7 @@ describe('CoreToolScheduler request queueing', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -1366,7 +1358,6 @@ describe('CoreToolScheduler request queueing', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null, // No client needed for these tests
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1482,7 +1473,7 @@ describe('CoreToolScheduler request queueing', () => {
       getToolRegistry: () => toolRegistry,
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 80,
@@ -1499,7 +1490,6 @@ describe('CoreToolScheduler request queueing', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null, // No client needed for these tests
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1586,7 +1576,7 @@ describe('CoreToolScheduler request queueing', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -1602,7 +1592,6 @@ describe('CoreToolScheduler request queueing', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null, // No client needed for these tests
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1678,7 +1667,6 @@ describe('CoreToolScheduler request queueing', () => {
       isInteractive: () => true, // Required to prevent auto-denial of tool calls
       getIdeMode: () => false,
       getExperimentalZedIntegration: () => false,
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const testTool = new TestApprovalTool(mockConfig);
@@ -1854,7 +1842,7 @@ describe('CoreToolScheduler Sequential Execution', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -1870,7 +1858,6 @@ describe('CoreToolScheduler Sequential Execution', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null,
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({
@@ -1975,7 +1962,7 @@ describe('CoreToolScheduler Sequential Execution', () => {
       getAllowedTools: () => [],
       getContentGeneratorConfig: () => ({
         model: 'test-model',
-        authType: 'gemini',
+        authType: 'oauth-personal',
       }),
       getShellExecutionConfig: () => ({
         terminalWidth: 90,
@@ -1991,7 +1978,6 @@ describe('CoreToolScheduler Sequential Execution', () => {
       getUseSmartEdit: () => false,
       getUseModelRouter: () => false,
       getGeminiClient: () => null,
-      getChatRecordingService: () => undefined,
     } as unknown as Config;
 
     const scheduler = new CoreToolScheduler({

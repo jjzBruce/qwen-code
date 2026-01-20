@@ -26,8 +26,6 @@ export const summaryCommand: SlashCommand = {
   action: async (context): Promise<SlashCommandActionReturn> => {
     const { config } = context.services;
     const { ui } = context;
-    const executionMode = context.executionMode ?? 'interactive';
-
     if (!config) {
       return {
         type: 'message',
@@ -45,8 +43,8 @@ export const summaryCommand: SlashCommand = {
       };
     }
 
-    // Check if already generating summary (interactive UI only)
-    if (executionMode === 'interactive' && ui.pendingItem) {
+    // Check if already generating summary
+    if (ui.pendingItem) {
       ui.addItem(
         {
           type: 'error' as const,
@@ -65,22 +63,29 @@ export const summaryCommand: SlashCommand = {
       };
     }
 
-    const getChatHistory = () => {
+    try {
+      // Get the current chat history
       const chat = geminiClient.getChat();
-      return chat.getHistory();
-    };
+      const history = chat.getHistory();
 
-    const validateChatHistory = (
-      history: ReturnType<typeof getChatHistory>,
-    ) => {
       if (history.length <= 2) {
-        throw new Error(t('No conversation found to summarize.'));
+        return {
+          type: 'message',
+          messageType: 'info',
+          content: t('No conversation found to summarize.'),
+        };
       }
-    };
 
-    const generateSummaryMarkdown = async (
-      history: ReturnType<typeof getChatHistory>,
-    ): Promise<string> => {
+      // Show loading state
+      const pendingMessage: HistoryItemSummary = {
+        type: 'summary',
+        summary: {
+          isPending: true,
+          stage: 'generating',
+        },
+      };
+      ui.setPendingItem(pendingMessage);
+
       // Build the conversation context for summary generation
       const conversationContext = history.map((message) => ({
         role: message.role,
@@ -116,21 +121,19 @@ export const summaryCommand: SlashCommand = {
 
       if (!markdownSummary) {
         throw new Error(
-          t(
-            'Failed to generate summary - no text content received from LLM response',
-          ),
+          'Failed to generate summary - no text content received from LLM response',
         );
       }
 
-      return markdownSummary;
-    };
+      // Update loading message to show saving progress
+      ui.setPendingItem({
+        type: 'summary',
+        summary: {
+          isPending: true,
+          stage: 'saving',
+        },
+      });
 
-    const saveSummaryToDisk = async (
-      markdownSummary: string,
-    ): Promise<{
-      filePathForDisplay: string;
-      fullPath: string;
-    }> => {
       // Ensure .qwen directory exists
       const projectRoot = config.getProjectRoot();
       const qwenDir = path.join(projectRoot, '.qwen');
@@ -152,163 +155,45 @@ export const summaryCommand: SlashCommand = {
 
       await fsPromises.writeFile(summaryPath, summaryContent, 'utf8');
 
-      return {
-        filePathForDisplay: '.qwen/PROJECT_SUMMARY.md',
-        fullPath: summaryPath,
-      };
-    };
-
-    const emitInteractivePending = (stage: 'generating' | 'saving') => {
-      if (executionMode !== 'interactive') {
-        return;
-      }
-      const pendingMessage: HistoryItemSummary = {
-        type: 'summary',
-        summary: {
-          isPending: true,
-          stage,
-        },
-      };
-      ui.setPendingItem(pendingMessage);
-    };
-
-    const completeInteractive = (filePathForDisplay: string) => {
-      if (executionMode !== 'interactive') {
-        return;
-      }
+      // Clear pending item and show success message
       ui.setPendingItem(null);
       const completedSummaryItem: HistoryItemSummary = {
         type: 'summary',
         summary: {
           isPending: false,
           stage: 'completed',
-          filePath: filePathForDisplay,
+          filePath: '.qwen/PROJECT_SUMMARY.md',
         },
       };
       ui.addItem(completedSummaryItem, Date.now());
-    };
 
-    const formatErrorMessage = (error: unknown): string =>
-      t('Failed to generate project context summary: {{error}}', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-
-    const failInteractive = (error: unknown) => {
-      if (executionMode !== 'interactive') {
-        return;
-      }
+      return {
+        type: 'message',
+        messageType: 'info',
+        content: '', // Empty content since we show the message in UI component
+      };
+    } catch (error) {
+      // Clear pending item on error
       ui.setPendingItem(null);
       ui.addItem(
         {
           type: 'error' as const,
-          text: `❌ ${formatErrorMessage(error)}`,
+          text: `❌ ${t(
+            'Failed to generate project context summary: {{error}}',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          )}`,
         },
         Date.now(),
       );
-    };
-
-    const formatSuccessMessage = (filePathForDisplay: string): string =>
-      t('Saved project summary to {{filePathForDisplay}}.', {
-        filePathForDisplay,
-      });
-
-    const returnNoConversationMessage = (): SlashCommandActionReturn => {
-      const msg = t('No conversation found to summarize.');
-      if (executionMode === 'acp') {
-        const messages = async function* () {
-          yield {
-            messageType: 'info' as const,
-            content: msg,
-          };
-        };
-        return {
-          type: 'stream_messages',
-          messages: messages(),
-        };
-      }
-      return {
-        type: 'message',
-        messageType: 'info',
-        content: msg,
-      };
-    };
-
-    const executeSummaryGeneration = async (
-      history: ReturnType<typeof getChatHistory>,
-    ): Promise<{
-      markdownSummary: string;
-      filePathForDisplay: string;
-    }> => {
-      emitInteractivePending('generating');
-      const markdownSummary = await generateSummaryMarkdown(history);
-      emitInteractivePending('saving');
-      const { filePathForDisplay } = await saveSummaryToDisk(markdownSummary);
-      completeInteractive(filePathForDisplay);
-      return { markdownSummary, filePathForDisplay };
-    };
-
-    // Validate chat history once at the beginning
-    const history = getChatHistory();
-    try {
-      validateChatHistory(history);
-    } catch (_error) {
-      return returnNoConversationMessage();
-    }
-
-    if (executionMode === 'acp') {
-      const messages = async function* () {
-        try {
-          yield {
-            messageType: 'info' as const,
-            content: t('Generating project summary...'),
-          };
-
-          const { filePathForDisplay } =
-            await executeSummaryGeneration(history);
-
-          yield {
-            messageType: 'info' as const,
-            content: formatSuccessMessage(filePathForDisplay),
-          };
-        } catch (error) {
-          failInteractive(error);
-          yield {
-            messageType: 'error' as const,
-            content: formatErrorMessage(error),
-          };
-        }
-      };
-
-      return {
-        type: 'stream_messages',
-        messages: messages(),
-      };
-    }
-
-    try {
-      const { filePathForDisplay } = await executeSummaryGeneration(history);
-
-      if (executionMode === 'non_interactive') {
-        return {
-          type: 'message',
-          messageType: 'info',
-          content: formatSuccessMessage(filePathForDisplay),
-        };
-      }
-
-      // Interactive mode: UI components already display progress and completion.
-      return {
-        type: 'message',
-        messageType: 'info',
-        content: '',
-      };
-    } catch (error) {
-      failInteractive(error);
 
       return {
         type: 'message',
         messageType: 'error',
-        content: formatErrorMessage(error),
+        content: t('Failed to generate project context summary: {{error}}', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
       };
     }
   },

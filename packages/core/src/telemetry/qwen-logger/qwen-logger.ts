@@ -38,10 +38,9 @@ import type {
   ModelSlashCommandEvent,
   ExtensionDisableEvent,
   AuthEvent,
-  SkillLaunchEvent,
   RipgrepFallbackEvent,
-  EndSessionEvent,
 } from '../types.js';
+import { EndSessionEvent } from '../types.js';
 import type {
   RumEvent,
   RumViewEvent,
@@ -103,7 +102,6 @@ export class QwenLogger {
   private lastFlushTime: number = Date.now();
 
   private userId: string;
-
   private sessionId: string;
 
   /**
@@ -117,12 +115,17 @@ export class QwenLogger {
    */
   private pendingFlush: boolean = false;
 
-  private constructor(config: Config) {
+  private isShutdown: boolean = false;
+
+  private constructor(config?: Config) {
     this.config = config;
     this.events = new FixedDeque<RumEvent>(Array, MAX_EVENTS);
     this.installationManager = new InstallationManager();
     this.userId = this.generateUserId();
-    this.sessionId = config.getSessionId();
+    this.sessionId =
+      typeof this.config?.getSessionId === 'function'
+        ? this.config.getSessionId()
+        : '';
   }
 
   private generateUserId(): string {
@@ -136,6 +139,10 @@ export class QwenLogger {
       return undefined;
     if (!QwenLogger.instance) {
       QwenLogger.instance = new QwenLogger(config);
+      process.on(
+        'exit',
+        QwenLogger.instance.shutdown.bind(QwenLogger.instance),
+      );
     }
 
     return QwenLogger.instance;
@@ -234,10 +241,10 @@ export class QwenLogger {
         id: this.userId,
       },
       session: {
-        id: this.sessionId || this.config?.getSessionId(),
+        id: this.sessionId,
       },
       view: {
-        id: this.sessionId || this.config?.getSessionId(),
+        id: this.sessionId,
         name: 'qwen-code-cli',
       },
       os: osMetadata,
@@ -250,9 +257,6 @@ export class QwenLogger {
           authType === AuthType.USE_OPENAI
             ? this.config?.getContentGeneratorConfig().baseUrl || ''
             : '',
-        ...(this.config?.getChannel?.()
-          ? { channel: this.config.getChannel() }
-          : {}),
       },
       _v: `qwen-code@${version}`,
     } as RumPayload;
@@ -360,24 +364,7 @@ export class QwenLogger {
   }
 
   // session events
-  async logStartSessionEvent(event: StartSessionEvent): Promise<void> {
-    // Flush all pending events with the old session ID first.
-    // If flush fails, discard the pending events to avoid mixing sessions.
-    await this.flushToRum().catch((error: unknown) => {
-      if (this.config?.getDebugMode()) {
-        console.debug(
-          'Error flushing pending events before session start:',
-          error,
-        );
-      }
-    });
-
-    // Clear any remaining events (discard if flush failed)
-    this.events.clear();
-
-    // Now set the new session ID
-    this.sessionId = event.session_id;
-
+  logStartSessionEvent(event: StartSessionEvent): void {
     const applicationEvent = this.createViewEvent('session', 'session_start', {
       properties: {
         model: event.model,
@@ -392,8 +379,6 @@ export class QwenLogger {
         telemetry_enabled: event.telemetry_enabled,
         telemetry_log_user_prompts_enabled:
           event.telemetry_log_user_prompts_enabled,
-        skills: event.skills,
-        subagents: event.subagents,
       },
     });
 
@@ -830,18 +815,6 @@ export class QwenLogger {
     this.flushIfNeeded();
   }
 
-  logSkillLaunchEvent(event: SkillLaunchEvent): void {
-    const rumEvent = this.createActionEvent('misc', 'skill_launch', {
-      properties: {
-        skill_name: event.skill_name,
-        success: event.success ? 1 : 0,
-      },
-    });
-
-    this.enqueueLogEvent(rumEvent);
-    this.flushIfNeeded();
-  }
-
   logChatCompressionEvent(event: ChatCompressionEvent): void {
     const rumEvent = this.createActionEvent('misc', 'chat_compression', {
       properties: {
@@ -877,6 +850,14 @@ export class QwenLogger {
     } else {
       throw new Error('Unsupported proxy type');
     }
+  }
+
+  shutdown() {
+    if (this.isShutdown) return;
+
+    this.isShutdown = true;
+    const event = new EndSessionEvent(this.config);
+    this.logEndSessionEvent(event);
   }
 
   private requeueFailedEvents(eventsToSend: RumEvent[]): void {

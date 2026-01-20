@@ -1,5 +1,4 @@
 import OpenAI from 'openai';
-import type { GenerateContentConfig } from '@google/genai';
 import type { Config } from '../../../config/config.js';
 import type { ContentGeneratorConfig } from '../../contentGenerator.js';
 import { AuthType } from '../../contentGenerator.js';
@@ -39,25 +38,20 @@ export class DashScopeOpenAICompatibleProvider
     return (
       authType === AuthType.QWEN_OAUTH ||
       baseUrl === 'https://dashscope.aliyuncs.com/compatible-mode/v1' ||
-      baseUrl === 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1' ||
-      !baseUrl
+      baseUrl === 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
     );
   }
 
   buildHeaders(): Record<string, string | undefined> {
     const version = this.cliConfig.getCliVersion() || 'unknown';
     const userAgent = `QwenCode/${version} (${process.platform}; ${process.arch})`;
-    const { authType, customHeaders } = this.contentGeneratorConfig;
-    const defaultHeaders = {
+    const { authType } = this.contentGeneratorConfig;
+    return {
       'User-Agent': userAgent,
       'X-DashScope-CacheControl': 'enable',
       'X-DashScope-UserAgent': userAgent,
       'X-DashScope-AuthType': authType,
     };
-
-    return customHeaders
-      ? { ...defaultHeaders, ...customHeaders }
-      : defaultHeaders;
   }
 
   buildClient(): OpenAI {
@@ -136,20 +130,11 @@ export class DashScopeOpenAICompatibleProvider
   }
 
   buildMetadata(userPromptId: string): DashScopeRequestMetadata {
-    const channel = this.cliConfig.getChannel?.();
-
     return {
       metadata: {
         sessionId: this.cliConfig.getSessionId?.(),
         promptId: userPromptId,
-        ...(channel ? { channel } : {}),
       },
-    };
-  }
-
-  getDefaultGenerationConfig(): GenerateContentConfig {
-    return {
-      temperature: 0.3,
     };
   }
 

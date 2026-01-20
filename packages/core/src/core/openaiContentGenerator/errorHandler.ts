@@ -5,15 +5,7 @@
  */
 
 import type { GenerateContentParameters } from '@google/genai';
-
-export interface RequestContext {
-  userPromptId: string;
-  model: string;
-  authType: string;
-  startTime: number;
-  duration: number;
-  isStreaming: boolean;
-}
+import type { RequestContext } from './telemetryService.js';
 
 export interface ErrorHandler {
   handle(

@@ -10,7 +10,6 @@ import type {
   ToolInvocation,
   ToolMcpConfirmationDetails,
   ToolResult,
-  ToolConfirmationPayload,
 } from './tools.js';
 import {
   BaseDeclarativeTool,
@@ -99,10 +98,7 @@ class DiscoveredMCPToolInvocation extends BaseToolInvocation<
       serverName: this.serverName,
       toolName: this.serverToolName, // Display original tool name in confirmation
       toolDisplayName: this.displayName, // Display global registry name exposed to model and user
-      onConfirm: async (
-        outcome: ToolConfirmationOutcome,
-        _payload?: ToolConfirmationPayload,
-      ) => {
+      onConfirm: async (outcome: ToolConfirmationOutcome) => {
         if (outcome === ToolConfirmationOutcome.ProceedAlwaysServer) {
           DiscoveredMCPToolInvocation.allowlist.add(serverAllowListKey);
         } else if (outcome === ToolConfirmationOutcome.ProceedAlwaysTool) {

@@ -13,7 +13,6 @@ export enum AttentionNotificationReason {
 
 export interface TerminalNotificationOptions {
   stream?: Pick<NodeJS.WriteStream, 'write' | 'isTTY'>;
-  enabled?: boolean;
 }
 
 const TERMINAL_BELL = '\u0007';
@@ -29,11 +28,6 @@ export function notifyTerminalAttention(
   _reason: AttentionNotificationReason,
   options: TerminalNotificationOptions = {},
 ): boolean {
-  // Check if terminal bell is enabled (default true for backwards compatibility)
-  if (options.enabled === false) {
-    return false;
-  }
-
   const stream = options.stream ?? process.stdout;
   if (!stream?.write || stream.isTTY === false) {
     return false;

@@ -1,6 +1,6 @@
 {
   "name": "@qwen-code/qwen-code",
-  "version": "0.7.0",
+  "version": "0.3.0",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -13,11 +13,14 @@
     "url": "git+https://github.com/QwenLM/qwen-code.git"
   },
   "config": {
-    "sandboxImageUri": "ghcr.io/qwenlm/qwen-code:0.7.0"
+    "sandboxImageUri": "ghcr.io/qwenlm/qwen-code:0.3.0"
   },
   "scripts": {
     "start": "cross-env node scripts/start.js",
     "debug": "cross-env DEBUG=1 node --inspect-brk scripts/start.js",
+    "auth:npm": "npx google-artifactregistry-auth",
+    "auth:docker": "gcloud auth configure-docker us-west1-docker.pkg.dev",
+    "auth": "npm run auth:npm && npm run auth:docker",
     "generate": "node scripts/generate-git-commit-info.js",
     "build": "node scripts/build.js",
     "build-and-start": "npm run build && npm run start",
@@ -34,10 +37,6 @@
     "test:integration:sandbox:none": "cross-env GEMINI_SANDBOX=false vitest run --root ./integration-tests",
     "test:integration:sandbox:docker": "cross-env GEMINI_SANDBOX=docker npm run build:sandbox && GEMINI_SANDBOX=docker vitest run --root ./integration-tests",
     "test:integration:sandbox:podman": "cross-env GEMINI_SANDBOX=podman vitest run --root ./integration-tests",
-    "test:integration:sdk:sandbox:none": "cross-env GEMINI_SANDBOX=false vitest run --root ./integration-tests sdk-typescript",
-    "test:integration:sdk:sandbox:docker": "cross-env GEMINI_SANDBOX=docker npm run build:sandbox && GEMINI_SANDBOX=docker vitest run --root ./integration-tests sdk-typescript",
-    "test:integration:cli:sandbox:none": "cross-env GEMINI_SANDBOX=false vitest run --root ./integration-tests --exclude '**/sdk-typescript/**'",
-    "test:integration:cli:sandbox:docker": "cross-env GEMINI_SANDBOX=docker npm run build:sandbox && GEMINI_SANDBOX=docker vitest run --root ./integration-tests --exclude '**/sdk-typescript/**'",
     "test:terminal-bench": "cross-env VERBOSE=true KEEP_OUTPUT=true vitest run --config ./vitest.terminal-bench.config.ts --root ./integration-tests",
     "test:terminal-bench:oracle": "cross-env VERBOSE=true KEEP_OUTPUT=true vitest run --config ./vitest.terminal-bench.config.ts --root ./integration-tests -t 'oracle'",
     "test:terminal-bench:qwen": "cross-env VERBOSE=true KEEP_OUTPUT=true vitest run --config ./vitest.terminal-bench.config.ts --root ./integration-tests -t 'qwen'",
@@ -90,8 +89,9 @@
     "eslint-plugin-license-header": "^0.8.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
-    "glob": "^10.5.0",
+    "glob": "^10.4.5",
     "globals": "^16.0.0",
+    "google-artifactregistry-auth": "^3.4.0",
     "husky": "^9.1.7",
     "json": "^11.0.0",
     "lint-staged": "^16.1.6",
@@ -130,8 +130,5 @@
     "*.{json,md}": [
       "prettier --write"
     ]
-  },
-  "volta": {
-    "node": "23.11.1"
   }
 }

@@ -54,7 +54,7 @@ export function ApprovalModeDialog({
 }: ApprovalModeDialogProps): React.JSX.Element {
   // Start with User scope by default
   const [selectedScope, setSelectedScope] = useState<SettingScope>(
-    SettingScope.Workspace,
+    SettingScope.User,
   );
 
   // Track the currently highlighted approval mode

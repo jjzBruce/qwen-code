@@ -15,19 +15,27 @@ import {
   DEFAULT_OTLP_ENDPOINT,
   QwenLogger,
 } from '../telemetry/index.js';
-import type {
-  ContentGenerator,
-  ContentGeneratorConfig,
-} from '../core/contentGenerator.js';
+import type { ContentGeneratorConfig } from '../core/contentGenerator.js';
 import { DEFAULT_DASHSCOPE_BASE_URL } from '../core/openaiContentGenerator/constants.js';
 import {
   AuthType,
-  createContentGenerator,
   createContentGeneratorConfig,
-  resolveContentGeneratorConfigWithSources,
 } from '../core/contentGenerator.js';
 import { GeminiClient } from '../core/client.js';
 import { GitService } from '../services/gitService.js';
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn().mockReturnValue(true),
+    statSync: vi.fn().mockReturnValue({
+      isDirectory: vi.fn().mockReturnValue(true),
+    }),
+    realpathSync: vi.fn((path) => path),
+  };
+});
+
 import { ShellTool } from '../tools/shell.js';
 import { ReadFileTool } from '../tools/read-file.js';
 import { GrepTool } from '../tools/grep.js';
@@ -46,19 +54,15 @@ function createToolMock(toolName: string) {
   return ToolMock;
 }
 
-vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs')>();
-  const mocked = {
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
     ...actual,
     existsSync: vi.fn().mockReturnValue(true),
     statSync: vi.fn().mockReturnValue({
       isDirectory: vi.fn().mockReturnValue(true),
     }),
     realpathSync: vi.fn((path) => path),
-  };
-  return {
-    ...mocked,
-    default: mocked, // Required for ESM default imports (import fs from 'node:fs')
   };
 });
 
@@ -68,7 +72,6 @@ vi.mock('../tools/tool-registry', () => {
   ToolRegistryMock.prototype.registerTool = vi.fn();
   ToolRegistryMock.prototype.discoverAllTools = vi.fn();
   ToolRegistryMock.prototype.getAllTools = vi.fn(() => []); // Mock methods if needed
-  ToolRegistryMock.prototype.getAllToolNames = vi.fn(() => []);
   ToolRegistryMock.prototype.getTool = vi.fn();
   ToolRegistryMock.prototype.getFunctionDeclarations = vi.fn(() => []);
   return { ToolRegistry: ToolRegistryMock };
@@ -194,6 +197,7 @@ describe('Server Config (config.ts)', () => {
   const USER_MEMORY = 'Test User Memory';
   const TELEMETRY_SETTINGS = { enabled: false };
   const EMBEDDING_MODEL = 'gemini-embedding';
+  const SESSION_ID = 'test-session-id';
   const baseParams: ConfigParameters = {
     cwd: '/tmp',
     embeddingModel: EMBEDDING_MODEL,
@@ -204,6 +208,7 @@ describe('Server Config (config.ts)', () => {
     fullContext: FULL_CONTEXT,
     userMemory: USER_MEMORY,
     telemetry: TELEMETRY_SETTINGS,
+    sessionId: SESSION_ID,
     model: MODEL,
     usageStatisticsEnabled: false,
   };
@@ -212,20 +217,7 @@ describe('Server Config (config.ts)', () => {
     // Reset mocks if necessary
     vi.clearAllMocks();
     vi.spyOn(QwenLogger.prototype, 'logStartSessionEvent').mockImplementation(
-      async () => undefined,
-    );
-
-    // Setup default mock for resolveContentGeneratorConfigWithSources
-    vi.mocked(resolveContentGeneratorConfigWithSources).mockImplementation(
-      (_config, authType, generationConfig) => ({
-        config: {
-          ...generationConfig,
-          authType,
-          model: generationConfig?.model || MODEL,
-          apiKey: 'test-key',
-        } as ContentGeneratorConfig,
-        sources: {},
-      }),
+      () => undefined,
     );
   });
 
@@ -274,28 +266,48 @@ describe('Server Config (config.ts)', () => {
       const mockContentConfig = {
         apiKey: 'test-key',
         model: 'qwen3-coder-plus',
-        authType,
       };
 
-      vi.mocked(resolveContentGeneratorConfigWithSources).mockReturnValue({
-        config: mockContentConfig as ContentGeneratorConfig,
-        sources: {},
-      });
+      vi.mocked(createContentGeneratorConfig).mockReturnValue(
+        mockContentConfig,
+      );
+
+      // Set fallback mode to true to ensure it gets reset
+      config.setFallbackMode(true);
+      expect(config.isInFallbackMode()).toBe(true);
 
       await config.refreshAuth(authType);
 
-      expect(resolveContentGeneratorConfigWithSources).toHaveBeenCalledWith(
+      expect(createContentGeneratorConfig).toHaveBeenCalledWith(
         config,
         authType,
-        expect.objectContaining({
+        {
           model: MODEL,
-        }),
-        expect.anything(),
-        expect.anything(),
+          baseUrl: DEFAULT_DASHSCOPE_BASE_URL,
+        },
       );
       // Verify that contentGeneratorConfig is updated
       expect(config.getContentGeneratorConfig()).toEqual(mockContentConfig);
       expect(GeminiClient).toHaveBeenCalledWith(config);
+      // Verify that fallback mode is reset
+      expect(config.isInFallbackMode()).toBe(false);
+    });
+
+    it('should strip thoughts when switching from GenAI to Vertex', async () => {
+      const config = new Config(baseParams);
+
+      vi.mocked(createContentGeneratorConfig).mockImplementation(
+        (_: Config, authType: AuthType | undefined) =>
+          ({ authType }) as unknown as ContentGeneratorConfig,
+      );
+
+      await config.refreshAuth(AuthType.USE_GEMINI);
+
+      await config.refreshAuth(AuthType.LOGIN_WITH_GOOGLE);
+
+      expect(
+        config.getGeminiClient().stripThoughtsFromHistory,
+      ).toHaveBeenCalledWith();
     });
 
     it('should not strip thoughts when switching from Vertex to GenAI', async () => {
@@ -313,129 +325,6 @@ describe('Server Config (config.ts)', () => {
       expect(
         config.getGeminiClient().stripThoughtsFromHistory,
       ).not.toHaveBeenCalledWith();
-    });
-  });
-
-  describe('model switching optimization (QWEN_OAUTH)', () => {
-    it('should switch qwen-oauth model in-place without refreshing auth when safe', async () => {
-      const config = new Config(baseParams);
-
-      const mockContentConfig: ContentGeneratorConfig = {
-        authType: AuthType.QWEN_OAUTH,
-        model: 'coder-model',
-        apiKey: 'QWEN_OAUTH_DYNAMIC_TOKEN',
-        baseUrl: DEFAULT_DASHSCOPE_BASE_URL,
-        timeout: 60000,
-        maxRetries: 3,
-      } as ContentGeneratorConfig;
-
-      vi.mocked(resolveContentGeneratorConfigWithSources).mockImplementation(
-        (_config, authType, generationConfig) => ({
-          config: {
-            ...mockContentConfig,
-            authType,
-            model: generationConfig?.model ?? mockContentConfig.model,
-          } as ContentGeneratorConfig,
-          sources: {},
-        }),
-      );
-      vi.mocked(createContentGenerator).mockResolvedValue({
-        generateContent: vi.fn(),
-        generateContentStream: vi.fn(),
-        countTokens: vi.fn(),
-        embedContent: vi.fn(),
-      } as unknown as ContentGenerator);
-
-      // Establish initial qwen-oauth content generator config/content generator.
-      await config.refreshAuth(AuthType.QWEN_OAUTH);
-
-      // Spy after initial refresh to ensure model switch does not re-trigger refreshAuth.
-      const refreshSpy = vi.spyOn(config, 'refreshAuth');
-
-      await config.switchModel(AuthType.QWEN_OAUTH, 'vision-model');
-
-      expect(config.getModel()).toBe('vision-model');
-      expect(refreshSpy).not.toHaveBeenCalled();
-      // Called once during initial refreshAuth + once during handleModelChange diffing.
-      expect(
-        vi.mocked(resolveContentGeneratorConfigWithSources),
-      ).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(createContentGenerator)).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('model switching with different credentials (OpenAI)', () => {
-    it('should refresh auth when switching to model with different envKey', async () => {
-      // This test verifies the fix for switching between modelProvider models
-      // with different envKeys (e.g., deepseek-chat with DEEPSEEK_API_KEY)
-      const configWithModelProviders = new Config({
-        ...baseParams,
-        authType: AuthType.USE_OPENAI,
-        modelProvidersConfig: {
-          openai: [
-            {
-              id: 'model-a',
-              name: 'Model A',
-              baseUrl: 'https://api.example.com/v1',
-              envKey: 'API_KEY_A',
-            },
-            {
-              id: 'model-b',
-              name: 'Model B',
-              baseUrl: 'https://api.example.com/v1',
-              envKey: 'API_KEY_B',
-            },
-          ],
-        },
-      });
-
-      const mockContentConfigA: ContentGeneratorConfig = {
-        authType: AuthType.USE_OPENAI,
-        model: 'model-a',
-        apiKey: 'key-a',
-        baseUrl: 'https://api.example.com/v1',
-      } as ContentGeneratorConfig;
-
-      const mockContentConfigB: ContentGeneratorConfig = {
-        authType: AuthType.USE_OPENAI,
-        model: 'model-b',
-        apiKey: 'key-b',
-        baseUrl: 'https://api.example.com/v1',
-      } as ContentGeneratorConfig;
-
-      vi.mocked(resolveContentGeneratorConfigWithSources).mockImplementation(
-        (_config, _authType, generationConfig) => {
-          const model = generationConfig?.model;
-          return {
-            config:
-              model === 'model-b' ? mockContentConfigB : mockContentConfigA,
-            sources: {},
-          };
-        },
-      );
-
-      vi.mocked(createContentGenerator).mockResolvedValue({
-        generateContent: vi.fn(),
-        generateContentStream: vi.fn(),
-        countTokens: vi.fn(),
-        embedContent: vi.fn(),
-      } as unknown as ContentGenerator);
-
-      // Initialize with model-a
-      await configWithModelProviders.refreshAuth(AuthType.USE_OPENAI);
-
-      // Spy on refreshAuth to verify it's called when switching to model-b
-      const refreshSpy = vi.spyOn(configWithModelProviders, 'refreshAuth');
-
-      // Switch to model-b (different envKey)
-      await configWithModelProviders.switchModel(
-        AuthType.USE_OPENAI,
-        'model-b',
-      );
-
-      // Should trigger full refresh because envKey changed
-      expect(refreshSpy).toHaveBeenCalledWith(AuthType.USE_OPENAI);
-      expect(configWithModelProviders.getModel()).toBe('model-b');
     });
   });
 
@@ -587,7 +476,7 @@ describe('Server Config (config.ts)', () => {
         ...baseParams,
         usageStatisticsEnabled: true,
       });
-      await config.initialize();
+      await config.refreshAuth(AuthType.USE_GEMINI);
 
       expect(QwenLogger.prototype.logStartSessionEvent).toHaveBeenCalledOnce();
     });
@@ -1067,6 +956,7 @@ describe('Server Config (config.ts)', () => {
 
 describe('setApprovalMode with folder trust', () => {
   const baseParams: ConfigParameters = {
+    sessionId: 'test',
     targetDir: '.',
     debugMode: false,
     model: 'test-model',
@@ -1097,6 +987,7 @@ describe('setApprovalMode with folder trust', () => {
 
   it('should NOT throw an error when setting PLAN mode in an untrusted folder', () => {
     const config = new Config({
+      sessionId: 'test',
       targetDir: '.',
       debugMode: false,
       model: 'test-model',
@@ -1277,6 +1168,7 @@ describe('BaseLlmClient Lifecycle', () => {
   const USER_MEMORY = 'Test User Memory';
   const TELEMETRY_SETTINGS = { enabled: false };
   const EMBEDDING_MODEL = 'gemini-embedding';
+  const SESSION_ID = 'test-session-id';
   const baseParams: ConfigParameters = {
     cwd: '/tmp',
     embeddingModel: EMBEDDING_MODEL,
@@ -1287,6 +1179,7 @@ describe('BaseLlmClient Lifecycle', () => {
     fullContext: FULL_CONTEXT,
     userMemory: USER_MEMORY,
     telemetry: TELEMETRY_SETTINGS,
+    sessionId: SESSION_ID,
     model: MODEL,
     usageStatisticsEnabled: false,
   };

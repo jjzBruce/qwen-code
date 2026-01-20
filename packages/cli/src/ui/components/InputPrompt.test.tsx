@@ -66,6 +66,20 @@ const mockSlashCommands: SlashCommand[] = [
       },
     ],
   },
+  {
+    name: 'chat',
+    description: 'Manage chats',
+    kind: CommandKind.BUILT_IN,
+    subCommands: [
+      {
+        name: 'resume',
+        description: 'Resume a chat',
+        kind: CommandKind.BUILT_IN,
+        action: vi.fn(),
+        completion: async () => ['fix-foo', 'fix-bar'],
+      },
+    ],
+  },
 ];
 
 describe('InputPrompt', () => {
@@ -557,14 +571,14 @@ describe('InputPrompt', () => {
   });
 
   it('should complete a partial argument for a command', async () => {
-    // SCENARIO: /memory add fi- -> Tab
+    // SCENARIO: /chat resume fi- -> Tab
     mockedUseCommandCompletion.mockReturnValue({
       ...mockCommandCompletion,
       showSuggestions: true,
       suggestions: [{ label: 'fix-foo', value: 'fix-foo' }],
       activeSuggestionIndex: 0,
     });
-    props.buffer.setText('/memory add fi-');
+    props.buffer.setText('/chat resume fi-');
 
     const { stdin, unmount } = renderWithProviders(<InputPrompt {...props} />);
     await wait();
@@ -1307,7 +1321,7 @@ describe('InputPrompt', () => {
       mockBuffer.text = text;
       mockBuffer.lines = [text];
       mockBuffer.viewportVisualLines = [text];
-      mockBuffer.visualCursor = [0, 7]; // cursor after '👍' (emoji is 1 code point, so total is 7)
+      mockBuffer.visualCursor = [0, 8]; // cursor after '👍' (length is 6 + 2 for emoji)
 
       const { stdout, unmount } = renderWithProviders(
         <InputPrompt {...props} />,

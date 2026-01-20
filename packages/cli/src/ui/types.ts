@@ -103,16 +103,6 @@ export type HistoryItemGeminiContent = HistoryItemBase & {
   text: string;
 };
 
-export type HistoryItemGeminiThought = HistoryItemBase & {
-  type: 'gemini_thought';
-  text: string;
-};
-
-export type HistoryItemGeminiThoughtContent = HistoryItemBase & {
-  type: 'gemini_thought_content';
-  text: string;
-};
-
 export type HistoryItemInfo = HistoryItemBase & {
   type: 'info';
   text: string;
@@ -171,6 +161,11 @@ export type HistoryItemQuit = HistoryItemBase & {
   duration: string;
 };
 
+export type HistoryItemQuitConfirmation = HistoryItemBase & {
+  type: 'quit_confirmation';
+  duration: string;
+};
+
 export type HistoryItemToolGroup = HistoryItemBase & {
   type: 'tool_group';
   tools: IndividualToolCallDisplay[];
@@ -201,19 +196,10 @@ export interface ToolDefinition {
   description?: string;
 }
 
-export interface SkillDefinition {
-  name: string;
-}
-
 export type HistoryItemToolsList = HistoryItemBase & {
   type: 'tools_list';
   tools: ToolDefinition[];
   showDescriptions: boolean;
-};
-
-export type HistoryItemSkillsList = HistoryItemBase & {
-  type: 'skills_list';
-  skills: SkillDefinition[];
 };
 
 // JSON-friendly types for using as a simple data model showing info about an
@@ -260,8 +246,6 @@ export type HistoryItemWithoutId =
   | HistoryItemUserShell
   | HistoryItemGemini
   | HistoryItemGeminiContent
-  | HistoryItemGeminiThought
-  | HistoryItemGeminiThoughtContent
   | HistoryItemInfo
   | HistoryItemError
   | HistoryItemWarning
@@ -272,12 +256,12 @@ export type HistoryItemWithoutId =
   | HistoryItemModelStats
   | HistoryItemToolStats
   | HistoryItemQuit
+  | HistoryItemQuitConfirmation
   | HistoryItemCompression
   | HistoryItemSummary
   | HistoryItemCompression
   | HistoryItemExtensionsList
   | HistoryItemToolsList
-  | HistoryItemSkillsList
   | HistoryItemMcpStatus;
 
 export type HistoryItem = HistoryItemWithoutId & { id: number };
@@ -294,12 +278,12 @@ export enum MessageType {
   MODEL_STATS = 'model_stats',
   TOOL_STATS = 'tool_stats',
   QUIT = 'quit',
+  QUIT_CONFIRMATION = 'quit_confirmation',
   GEMINI = 'gemini',
   COMPRESSION = 'compression',
   SUMMARY = 'summary',
   EXTENSIONS_LIST = 'extensions_list',
   TOOLS_LIST = 'tools_list',
-  SKILLS_LIST = 'skills_list',
   MCP_STATUS = 'mcp_status',
 }
 
@@ -359,6 +343,12 @@ export type Message =
       content?: string;
     }
   | {
+      type: MessageType.QUIT_CONFIRMATION;
+      timestamp: Date;
+      duration: string;
+      content?: string;
+    }
+  | {
       type: MessageType.COMPRESSION;
       compression: CompressionProps;
       timestamp: Date;
@@ -413,4 +403,8 @@ export interface ConfirmationRequest {
 
 export interface LoopDetectionConfirmationRequest {
   onComplete: (result: { userSelection: 'disable' | 'keep' }) => void;
+}
+
+export interface QuitConfirmationRequest {
+  onConfirm: (shouldQuit: boolean, action?: string) => void;
 }

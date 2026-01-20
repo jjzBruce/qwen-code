@@ -6,13 +6,12 @@
 
 import {
   getErrorMessage,
-  getCurrentGeminiMdFilename,
   loadServerHierarchicalMemory,
   QWEN_DIR,
 } from '@qwen-code/qwen-code-core';
 import path from 'node:path';
-import os from 'node:os';
-import fs from 'node:fs/promises';
+import os from 'os';
+import fs from 'fs/promises';
 import { MessageType } from '../types.js';
 import type { SlashCommand, SlashCommandActionReturn } from './types.js';
 import { CommandKind } from './types.js';
@@ -57,12 +56,7 @@ export const memoryCommand: SlashCommand = {
           kind: CommandKind.BUILT_IN,
           action: async (context) => {
             try {
-              const workingDir =
-                context.services.config?.getWorkingDir?.() ?? process.cwd();
-              const projectMemoryPath = path.join(
-                workingDir,
-                getCurrentGeminiMdFilename(),
-              );
+              const projectMemoryPath = path.join(process.cwd(), 'QWEN.md');
               const memoryContent = await fs.readFile(
                 projectMemoryPath,
                 'utf-8',
@@ -110,7 +104,7 @@ export const memoryCommand: SlashCommand = {
               const globalMemoryPath = path.join(
                 os.homedir(),
                 QWEN_DIR,
-                getCurrentGeminiMdFilename(),
+                'QWEN.md',
               );
               const globalMemoryContent = await fs.readFile(
                 globalMemoryPath,

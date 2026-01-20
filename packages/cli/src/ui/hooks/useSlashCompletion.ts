@@ -9,7 +9,6 @@ import { AsyncFzf } from 'fzf';
 import type { Suggestion } from '../components/SuggestionsDisplay.js';
 import {
   CommandKind,
-  type CommandCompletionItem,
   type CommandContext,
   type SlashCommand,
 } from '../commands/types.js';
@@ -216,9 +215,10 @@ function useCommandSuggestions(
             )) || [];
 
           if (!signal.aborted) {
-            const finalSuggestions = results
-              .map((item) => toSuggestion(item))
-              .filter((suggestion): suggestion is Suggestion => !!suggestion);
+            const finalSuggestions = results.map((s) => ({
+              label: s,
+              value: s,
+            }));
             setSuggestions(finalSuggestions);
             setIsLoading(false);
           }
@@ -282,7 +282,7 @@ function useCommandSuggestions(
 
         if (!signal.aborted) {
           const finalSuggestions = potentialSuggestions.map((cmd) => ({
-            label: formatSlashCommandLabel(cmd),
+            label: cmd.name,
             value: cmd.name,
             description: cmd.description,
             commandKind: cmd.kind,
@@ -308,20 +308,6 @@ function useCommandSuggestions(
   }, [parserResult, commandContext, getFzfForCommands, getPrefixSuggestions]);
 
   return { suggestions, isLoading };
-}
-
-function toSuggestion(item: string | CommandCompletionItem): Suggestion | null {
-  if (typeof item === 'string') {
-    return { label: item, value: item };
-  }
-  if (!item.value) {
-    return null;
-  }
-  return {
-    label: item.label ?? item.value,
-    value: item.value,
-    description: item.description,
-  };
 }
 
 function useCompletionPositions(
@@ -538,15 +524,4 @@ export function useSlashCompletion(props: UseSlashCompletionProps): {
     completionStart,
     completionEnd,
   };
-}
-
-function formatSlashCommandLabel(command: SlashCommand): string {
-  const baseLabel = command.name;
-  const altNames = command.altNames?.filter(Boolean);
-
-  if (!altNames || altNames.length === 0) {
-    return baseLabel;
-  }
-
-  return `${baseLabel} (${altNames.join(', ')})`;
 }

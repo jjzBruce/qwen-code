@@ -38,7 +38,7 @@ export function tildeifyPath(path: string): string {
  * Shortens a path string if it exceeds maxLen, prioritizing the start and end segments.
  * Example: /path/to/a/very/long/file.txt -> /path/.../long/file.txt
  */
-export function shortenPath(filePath: string, maxLen: number = 80): string {
+export function shortenPath(filePath: string, maxLen: number = 35): string {
   if (filePath.length <= maxLen) {
     return filePath;
   }
@@ -119,10 +119,6 @@ export function makeRelative(
 ): string {
   const resolvedTargetPath = path.resolve(targetPath);
   const resolvedRootDirectory = path.resolve(rootDirectory);
-
-  if (!isSubpath(resolvedRootDirectory, resolvedTargetPath)) {
-    return resolvedTargetPath;
-  }
 
   const relativePath = path.relative(resolvedRootDirectory, resolvedTargetPath);
 

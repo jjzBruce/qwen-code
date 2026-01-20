@@ -30,6 +30,7 @@ import {
   ToolCallEvent,
 } from '../types.js';
 import { GIT_COMMIT_INFO, CLI_VERSION } from '../../generated/git-commit.js';
+import { UserAccountManager } from '../../utils/userAccountManager.js';
 import { InstallationManager } from '../../utils/installationManager.js';
 import { safeJsonStringify } from '../../utils/safeJsonStringify.js';
 
@@ -89,8 +90,10 @@ expect.extend({
   },
 });
 
+vi.mock('../../utils/userAccountManager.js');
 vi.mock('../../utils/installationManager.js');
 
+const mockUserAccount = vi.mocked(UserAccountManager.prototype);
 const mockInstallMgr = vi.mocked(InstallationManager.prototype);
 
 // TODO(richieforeman): Consider moving this to test setup globally.
@@ -125,7 +128,11 @@ describe('ClearcutLogger', () => {
     vi.unstubAllEnvs();
   });
 
-  function setup({ config = {} as Partial<ConfigParameters> } = {}) {
+  function setup({
+    config = {} as Partial<ConfigParameters>,
+    lifetimeGoogleAccounts = 1,
+    cachedGoogleAccount = 'test@google.com',
+  } = {}) {
     server.resetHandlers(
       http.post(CLEARCUT_URL, () => HttpResponse.text(EXAMPLE_RESPONSE)),
     );
@@ -135,10 +142,13 @@ describe('ClearcutLogger', () => {
 
     const loggerConfig = makeFakeConfig({
       ...config,
-      sessionId: 'test-session-id',
     });
     ClearcutLogger.clearInstance();
 
+    mockUserAccount.getCachedGoogleAccount.mockReturnValue(cachedGoogleAccount);
+    mockUserAccount.getLifetimeGoogleAccounts.mockReturnValue(
+      lifetimeGoogleAccounts,
+    );
     mockInstallMgr.getInstallationId = vi
       .fn()
       .mockReturnValue('test-installation-id');
@@ -184,6 +194,19 @@ describe('ClearcutLogger', () => {
   });
 
   describe('createLogEvent', () => {
+    it('logs the total number of google accounts', () => {
+      const { logger } = setup({
+        lifetimeGoogleAccounts: 9001,
+      });
+
+      const event = logger?.createLogEvent(EventNames.API_ERROR, []);
+
+      expect(event?.event_metadata[0]).toContainEqual({
+        gemini_cli_key: EventMetadataKey.GEMINI_CLI_GOOGLE_ACCOUNTS_COUNT,
+        value: '9001',
+      });
+    });
+
     it('logs the current surface from a github action', () => {
       const { logger } = setup({});
 
@@ -225,8 +248,9 @@ describe('ClearcutLogger', () => {
 
     it('logs default metadata', () => {
       // Define expected values
-      const session_id = 'test-session-id';
+      const session_id = 'my-session-id';
       const auth_type = AuthType.USE_GEMINI;
+      const google_accounts = 123;
       const surface = 'ide-1234';
       const cli_version = CLI_VERSION;
       const git_commit_hash = GIT_COMMIT_INFO;
@@ -235,7 +259,8 @@ describe('ClearcutLogger', () => {
 
       // Setup logger with expected values
       const { logger, loggerConfig } = setup({
-        config: {},
+        lifetimeGoogleAccounts: google_accounts,
+        config: { sessionId: session_id },
       });
       vi.spyOn(loggerConfig, 'getContentGeneratorConfig').mockReturnValue({
         authType: auth_type,
@@ -256,6 +281,10 @@ describe('ClearcutLogger', () => {
           {
             gemini_cli_key: EventMetadataKey.GEMINI_CLI_AUTH_TYPE,
             value: JSON.stringify(auth_type),
+          },
+          {
+            gemini_cli_key: EventMetadataKey.GEMINI_CLI_GOOGLE_ACCOUNTS_COUNT,
+            value: `${google_accounts}`,
           },
           {
             gemini_cli_key: EventMetadataKey.GEMINI_CLI_SURFACE,
@@ -374,14 +403,10 @@ describe('ClearcutLogger', () => {
           vi.stubEnv(key, value);
         }
         const event = logger?.createLogEvent(EventNames.API_ERROR, []);
-        expect(event?.event_metadata[0]).toEqual(
-          expect.arrayContaining([
-            {
-              gemini_cli_key: EventMetadataKey.GEMINI_CLI_SURFACE,
-              value: expectedValue,
-            },
-          ]),
-        );
+        expect(event?.event_metadata[0][3]).toEqual({
+          gemini_cli_key: EventMetadataKey.GEMINI_CLI_SURFACE,
+          value: expectedValue,
+        });
       },
     );
   });

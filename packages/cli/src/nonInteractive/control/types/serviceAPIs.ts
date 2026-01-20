@@ -13,7 +13,10 @@
  */
 
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { MCPServerConfig } from '@qwen-code/qwen-code-core';
+import type {
+  ToolCallRequestInfo,
+  MCPServerConfig,
+} from '@qwen-code/qwen-code-core';
 import type { PermissionSuggestion } from '../../types.js';
 
 /**
@@ -23,6 +26,25 @@ import type { PermissionSuggestion } from '../../types.js';
  * permission suggestions, and tool call monitoring callbacks.
  */
 export interface PermissionServiceAPI {
+  /**
+   * Check if a tool should be allowed based on current permission settings
+   *
+   * Evaluates permission mode and tool registry to determine if execution
+   * should proceed. Can optionally modify tool arguments based on confirmation details.
+   *
+   * @param toolRequest - Tool call request information containing name, args, and call ID
+   * @param confirmationDetails - Optional confirmation details for UI-driven approvals
+   * @returns Promise resolving to permission decision with optional updated arguments
+   */
+  shouldAllowTool(
+    toolRequest: ToolCallRequestInfo,
+    confirmationDetails?: unknown,
+  ): Promise<{
+    allowed: boolean;
+    message?: string;
+    updatedArgs?: Record<string, unknown>;
+  }>;
+
   /**
    * Build UI suggestions for tool confirmation dialogs
    *

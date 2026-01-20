@@ -13,11 +13,7 @@ import type {
   ServerGeminiStreamEvent,
   TaskResultDisplay,
 } from '@qwen-code/qwen-code-core';
-import {
-  GeminiEventType,
-  ToolErrorType,
-  parseAndFormatApiError,
-} from '@qwen-code/qwen-code-core';
+import { GeminiEventType, ToolErrorType } from '@qwen-code/qwen-code-core';
 import type { Part, GenerateContentResponseUsageMetadata } from '@google/genai';
 import type {
   CLIAssistantMessage,
@@ -604,16 +600,6 @@ export abstract class BaseJsonOutputAdapter {
         }
         this.finalizePendingBlocks(state, null);
         break;
-      case GeminiEventType.Error: {
-        // Format the error message using parseAndFormatApiError for consistency
-        // with interactive mode error display
-        const errorText = parseAndFormatApiError(
-          event.value.error,
-          this.config.getContentGeneratorConfig()?.authType,
-        );
-        this.appendText(state, errorText, null);
-        break;
-      }
       default:
         break;
     }
@@ -816,18 +802,9 @@ export abstract class BaseJsonOutputAdapter {
     parentToolUseId?: string | null,
   ): void {
     const actualParentToolUseId = parentToolUseId ?? null;
-
-    // Build fragment without trimming to preserve whitespace in streaming content
-    // Only filter out null/undefined/empty values
-    const parts: string[] = [];
-    if (subject && subject.length > 0) {
-      parts.push(subject);
-    }
-    if (description && description.length > 0) {
-      parts.push(description);
-    }
-
-    const fragment = parts.join(': ');
+    const fragment = [subject?.trim(), description?.trim()]
+      .filter((value) => value && value.length > 0)
+      .join(': ');
     if (!fragment) {
       return;
     }
@@ -963,24 +940,8 @@ export abstract class BaseJsonOutputAdapter {
   }
 
   /**
-   * Checks if responseParts contain any functionResponse with an error.
-   * This handles cancelled responses and other error cases where the error
-   * is embedded in responseParts rather than the top-level error field.
-   * @param responseParts - Array of Part objects
-   * @returns Error message if found, undefined otherwise
-   */
-  private checkResponsePartsForError(
-    responseParts: Part[] | undefined,
-  ): string | undefined {
-    // Use the shared helper function defined at file level
-    return checkResponsePartsForError(responseParts);
-  }
-
-  /**
    * Emits a tool result message.
    * Collects execution denied tool calls for inclusion in result messages.
-   * Handles both explicit errors (response.error) and errors embedded in
-   * responseParts (e.g., cancelled responses).
    * @param request - Tool call request info
    * @param response - Tool call response info
    * @param parentToolUseId - Parent tool use ID (null for main agent)
@@ -990,14 +951,6 @@ export abstract class BaseJsonOutputAdapter {
     response: ToolCallResponseInfo,
     parentToolUseId: string | null = null,
   ): void {
-    // Check for errors in responseParts (e.g., cancelled responses)
-    const responsePartsError = this.checkResponsePartsForError(
-      response.responseParts,
-    );
-
-    // Determine if this is an error response
-    const hasError = Boolean(response.error) || Boolean(responsePartsError);
-
     // Track permission denials (execution denied errors)
     if (
       response.error &&
@@ -1014,7 +967,7 @@ export abstract class BaseJsonOutputAdapter {
     const block: ToolResultBlock = {
       type: 'tool_result',
       tool_use_id: request.callId,
-      is_error: hasError,
+      is_error: Boolean(response.error),
     };
     const content = toolResultContent(response);
     if (content !== undefined) {
@@ -1221,40 +1174,10 @@ export function partsToString(parts: Part[]): string {
 }
 
 /**
- * Checks if responseParts contain any functionResponse with an error.
- * Helper function for extracting error messages from responseParts.
- * @param responseParts - Array of Part objects
- * @returns Error message if found, undefined otherwise
- */
-function checkResponsePartsForError(
-  responseParts: Part[] | undefined,
-): string | undefined {
-  if (!responseParts || responseParts.length === 0) {
-    return undefined;
-  }
-
-  for (const part of responseParts) {
-    if (
-      'functionResponse' in part &&
-      part.functionResponse?.response &&
-      typeof part.functionResponse.response === 'object' &&
-      'error' in part.functionResponse.response &&
-      part.functionResponse.response['error']
-    ) {
-      const error = part.functionResponse.response['error'];
-      return typeof error === 'string' ? error : String(error);
-    }
-  }
-
-  return undefined;
-}
-
-/**
  * Extracts content from tool response.
  * Uses functionResponsePartsToString to properly handle functionResponse parts,
  * which correctly extracts output content from functionResponse objects rather
  * than simply concatenating text or JSON.stringify.
- * Also handles errors embedded in responseParts (e.g., cancelled responses).
  *
  * @param response - Tool call response
  * @returns String content or undefined
@@ -1264,11 +1187,6 @@ export function toolResultContent(
 ): string | undefined {
   if (response.error) {
     return response.error.message;
-  }
-  // Check for errors in responseParts (e.g., cancelled responses)
-  const responsePartsError = checkResponsePartsForError(response.responseParts);
-  if (responsePartsError) {
-    return responsePartsError;
   }
   if (
     typeof response.resultDisplay === 'string' &&

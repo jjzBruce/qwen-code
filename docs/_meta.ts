@@ -1,14 +1,10 @@
 export default {
-  index: {
-    type: 'page',
-    display: 'hidden',
-  },
-  users: {
-    type: 'page',
-    title: 'User Guide',
-  },
-  developers: {
-    type: 'page',
-    title: 'Developer Guide',
-  },
+  index: 'Welcome to Qwen Code',
+  cli: 'CLI',
+  core: 'Core',
+  tools: 'Tools',
+  features: 'Features',
+  'ide-integration': 'IDE Integration',
+  development: 'Development',
+  support: 'Support',
 };

@@ -5,23 +5,42 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import {
-  createContentGenerator,
-  createContentGeneratorConfig,
-  AuthType,
-} from './contentGenerator.js';
+import type { ContentGenerator } from './contentGenerator.js';
+import { createContentGenerator, AuthType } from './contentGenerator.js';
+import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
 import { GoogleGenAI } from '@google/genai';
 import type { Config } from '../config/config.js';
-import { LoggingContentGenerator } from './loggingContentGenerator/index.js';
+import { LoggingContentGenerator } from './loggingContentGenerator.js';
 
+vi.mock('../code_assist/codeAssist.js');
 vi.mock('@google/genai');
 
+const mockConfig = {
+  getCliVersion: vi.fn().mockReturnValue('1.0.0'),
+} as unknown as Config;
+
 describe('createContentGenerator', () => {
-  it('should create a Gemini content generator', async () => {
+  it('should create a CodeAssistContentGenerator', async () => {
+    const mockGenerator = {} as unknown as ContentGenerator;
+    vi.mocked(createCodeAssistContentGenerator).mockResolvedValue(
+      mockGenerator as never,
+    );
+    const generator = await createContentGenerator(
+      {
+        model: 'test-model',
+        authType: AuthType.LOGIN_WITH_GOOGLE,
+      },
+      mockConfig,
+    );
+    expect(createCodeAssistContentGenerator).toHaveBeenCalled();
+    expect(generator).toEqual(
+      new LoggingContentGenerator(mockGenerator, mockConfig),
+    );
+  });
+
+  it('should create a GoogleGenAI content generator', async () => {
     const mockConfig = {
       getUsageStatisticsEnabled: () => true,
-      getContentGeneratorConfig: () => ({}),
-      getCliVersion: () => '1.0.0',
     } as unknown as Config;
 
     const mockGenerator = {
@@ -46,17 +65,17 @@ describe('createContentGenerator', () => {
         },
       },
     });
-    // We expect it to be a LoggingContentGenerator wrapping a GeminiContentGenerator
-    expect(generator).toBeInstanceOf(LoggingContentGenerator);
-    const wrapped = (generator as LoggingContentGenerator).getWrapped();
-    expect(wrapped).toBeDefined();
+    expect(generator).toEqual(
+      new LoggingContentGenerator(
+        (mockGenerator as GoogleGenAI).models,
+        mockConfig,
+      ),
+    );
   });
 
-  it('should create a Gemini content generator with client install id logging disabled', async () => {
+  it('should create a GoogleGenAI content generator with client install id logging disabled', async () => {
     const mockConfig = {
       getUsageStatisticsEnabled: () => false,
-      getContentGeneratorConfig: () => ({}),
-      getCliVersion: () => '1.0.0',
     } as unknown as Config;
     const mockGenerator = {
       models: {},
@@ -79,35 +98,11 @@ describe('createContentGenerator', () => {
         },
       },
     });
-    expect(generator).toBeInstanceOf(LoggingContentGenerator);
-  });
-});
-
-describe('createContentGeneratorConfig', () => {
-  const mockConfig = {
-    getProxy: () => undefined,
-  } as unknown as Config;
-
-  it('should preserve provided fields and set authType for QWEN_OAUTH', () => {
-    const cfg = createContentGeneratorConfig(mockConfig, AuthType.QWEN_OAUTH, {
-      model: 'vision-model',
-      apiKey: 'QWEN_OAUTH_DYNAMIC_TOKEN',
-    });
-    expect(cfg.authType).toBe(AuthType.QWEN_OAUTH);
-    expect(cfg.model).toBe('vision-model');
-    expect(cfg.apiKey).toBe('QWEN_OAUTH_DYNAMIC_TOKEN');
-  });
-
-  it('should not warn or fallback for QWEN_OAUTH (resolution handled by ModelConfigResolver)', () => {
-    const warnSpy = vi
-      .spyOn(console, 'warn')
-      .mockImplementation(() => undefined);
-    const cfg = createContentGeneratorConfig(mockConfig, AuthType.QWEN_OAUTH, {
-      model: 'some-random-model',
-    });
-    expect(cfg.model).toBe('some-random-model');
-    expect(cfg.apiKey).toBeUndefined();
-    expect(warnSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(generator).toEqual(
+      new LoggingContentGenerator(
+        (mockGenerator as GoogleGenAI).models,
+        mockConfig,
+      ),
+    );
   });
 });

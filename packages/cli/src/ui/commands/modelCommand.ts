@@ -11,6 +11,7 @@ import type {
   MessageActionReturn,
 } from './types.js';
 import { CommandKind } from './types.js';
+import { getAvailableModelsForAuthType } from '../models/availableModels.js';
 import { t } from '../../i18n/index.js';
 
 export const modelCommand: SlashCommand = {
@@ -29,7 +30,7 @@ export const modelCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Configuration not available.'),
+        content: 'Configuration not available.',
       };
     }
 
@@ -51,6 +52,22 @@ export const modelCommand: SlashCommand = {
       };
     }
 
+    const availableModels = getAvailableModelsForAuthType(authType);
+
+    if (availableModels.length === 0) {
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: t(
+          'No models available for the current authentication type ({{authType}}).',
+          {
+            authType,
+          },
+        ),
+      };
+    }
+
+    // Trigger model selection dialog
     return {
       type: 'dialog',
       dialog: 'model',

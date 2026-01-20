@@ -15,6 +15,11 @@ import type {
 
 // Config
 import { ApprovalMode, type Config } from '../config/config.js';
+import {
+  DEFAULT_GEMINI_FLASH_MODEL,
+  DEFAULT_GEMINI_MODEL_AUTO,
+  DEFAULT_THINKING_MODE,
+} from '../config/models.js';
 
 // Core modules
 import type { ContentGenerator } from './contentGenerator.js';
@@ -34,6 +39,7 @@ import {
 } from './turn.js';
 
 // Services
+import { type ChatRecordingService } from '../services/chatRecordingService.js';
 import {
   ChatCompressionService,
   COMPRESSION_PRESERVE_THRESHOLD,
@@ -49,17 +55,12 @@ import {
   NextSpeakerCheckEvent,
   logNextSpeakerCheck,
 } from '../telemetry/index.js';
-import { uiTelemetryService } from '../telemetry/uiTelemetry.js';
 
 // Utilities
 import {
   getDirectoryContextString,
   getInitialChatHistory,
 } from '../utils/environmentContext.js';
-import {
-  buildApiHistoryFromConversation,
-  replayUiTelemetryFromConversation,
-} from '../services/sessionService.js';
 import { reportError } from '../utils/errorReporting.js';
 import { getErrorMessage } from '../utils/errors.js';
 import { checkNextSpeaker } from '../utils/nextSpeakerChecker.js';
@@ -73,14 +74,29 @@ import { type File, type IdeContext } from '../ide/types.js';
 // Fallback handling
 import { handleFallback } from '../fallback/handler.js';
 
+export function isThinkingSupported(model: string) {
+  return model.startsWith('gemini-2.5') || model === DEFAULT_GEMINI_MODEL_AUTO;
+}
+
+export function isThinkingDefault(model: string) {
+  if (model.startsWith('gemini-2.5-flash-lite')) {
+    return false;
+  }
+  return model.startsWith('gemini-2.5') || model === DEFAULT_GEMINI_MODEL_AUTO;
+}
+
 const MAX_TURNS = 100;
 
 export class GeminiClient {
   private chat?: GeminiChat;
+  private readonly generateContentConfig: GenerateContentConfig = {
+    temperature: 0,
+    topP: 1,
+  };
   private sessionTurnCount = 0;
 
   private readonly loopDetector: LoopDetectionService;
-  private lastPromptId: string | undefined = undefined;
+  private lastPromptId: string;
   private lastSentIdeContext: IdeContext | undefined;
   private forceFullIdeContext = true;
 
@@ -92,24 +108,11 @@ export class GeminiClient {
 
   constructor(private readonly config: Config) {
     this.loopDetector = new LoopDetectionService(config);
+    this.lastPromptId = this.config.getSessionId();
   }
 
   async initialize() {
-    this.lastPromptId = this.config.getSessionId();
-
-    // Check if we're resuming from a previous session
-    const resumedSessionData = this.config.getResumedSessionData();
-    if (resumedSessionData) {
-      replayUiTelemetryFromConversation(resumedSessionData.conversation);
-      // Convert resumed session to API history format
-      // Each ChatRecord's message field is already a Content object
-      const resumedHistory = buildApiHistoryFromConversation(
-        resumedSessionData.conversation,
-      );
-      this.chat = await this.startChat(resumedHistory);
-    } else {
-      this.chat = await this.startChat();
-    }
+    this.chat = await this.startChat();
   }
 
   private getContentGeneratorOrFail(): ContentGenerator {
@@ -158,6 +161,10 @@ export class GeminiClient {
     this.chat = await this.startChat();
   }
 
+  getChatRecordingService(): ChatRecordingService | undefined {
+    return this.chat?.getChatRecordingService();
+  }
+
   getLoopDetectionService(): LoopDetectionService {
     return this.loopDetector;
   }
@@ -188,14 +195,23 @@ export class GeminiClient {
       const model = this.config.getModel();
       const systemInstruction = getCoreSystemPrompt(userMemory, model);
 
+      const config: GenerateContentConfig = { ...this.generateContentConfig };
+
+      if (isThinkingSupported(model)) {
+        config.thinkingConfig = {
+          includeThoughts: true,
+          thinkingBudget: DEFAULT_THINKING_MODE,
+        };
+      }
+
       return new GeminiChat(
         this.config,
         {
           systemInstruction,
+          ...config,
           tools,
         },
         history,
-        this.config.getChatRecordingService(),
       );
     } catch (error) {
       await reportError(
@@ -218,48 +234,42 @@ export class GeminiClient {
     }
 
     if (forceFullContext || !this.lastSentIdeContext) {
-      // Send full context as plain text
+      // Send full context as JSON
       const openFiles = currentIdeContext.workspaceState?.openFiles || [];
       const activeFile = openFiles.find((f) => f.isActive);
       const otherOpenFiles = openFiles
         .filter((f) => !f.isActive)
         .map((f) => f.path);
 
-      const contextLines: string[] = [];
+      const contextData: Record<string, unknown> = {};
 
       if (activeFile) {
-        contextLines.push('Active file:');
-        contextLines.push(`  Path: ${activeFile.path}`);
-        if (activeFile.cursor) {
-          contextLines.push(
-            `  Cursor: line ${activeFile.cursor.line}, character ${activeFile.cursor.character}`,
-          );
-        }
-        if (activeFile.selectedText) {
-          contextLines.push('  Selected text:');
-          contextLines.push('```');
-          contextLines.push(activeFile.selectedText);
-          contextLines.push('```');
-        }
+        contextData['activeFile'] = {
+          path: activeFile.path,
+          cursor: activeFile.cursor
+            ? {
+                line: activeFile.cursor.line,
+                character: activeFile.cursor.character,
+              }
+            : undefined,
+          selectedText: activeFile.selectedText || undefined,
+        };
       }
 
       if (otherOpenFiles.length > 0) {
-        if (contextLines.length > 0) {
-          contextLines.push('');
-        }
-        contextLines.push('Other open files:');
-        for (const filePath of otherOpenFiles) {
-          contextLines.push(`  - ${filePath}`);
-        }
+        contextData['otherOpenFiles'] = otherOpenFiles;
       }
 
-      if (contextLines.length === 0) {
+      if (Object.keys(contextData).length === 0) {
         return { contextParts: [], newIdeContext: currentIdeContext };
       }
 
+      const jsonString = JSON.stringify(contextData, null, 2);
       const contextParts = [
-        "Here is the user's editor context. This is for your information only.",
-        contextLines.join('\n'),
+        "Here is the user's editor context as a JSON object. This is for your information only.",
+        '```json',
+        jsonString,
+        '```',
       ];
 
       if (this.config.getDebugMode()) {
@@ -270,8 +280,9 @@ export class GeminiClient {
         newIdeContext: currentIdeContext,
       };
     } else {
-      // Calculate and send delta as plain text
-      const changeLines: string[] = [];
+      // Calculate and send delta as JSON
+      const delta: Record<string, unknown> = {};
+      const changes: Record<string, unknown> = {};
 
       const lastFiles = new Map(
         (this.lastSentIdeContext.workspaceState?.openFiles || []).map(
@@ -292,10 +303,7 @@ export class GeminiClient {
         }
       }
       if (openedFiles.length > 0) {
-        changeLines.push('Files opened:');
-        for (const filePath of openedFiles) {
-          changeLines.push(`  - ${filePath}`);
-        }
+        changes['filesOpened'] = openedFiles;
       }
 
       const closedFiles: string[] = [];
@@ -305,13 +313,7 @@ export class GeminiClient {
         }
       }
       if (closedFiles.length > 0) {
-        if (changeLines.length > 0) {
-          changeLines.push('');
-        }
-        changeLines.push('Files closed:');
-        for (const filePath of closedFiles) {
-          changeLines.push(`  - ${filePath}`);
-        }
+        changes['filesClosed'] = closedFiles;
       }
 
       const lastActiveFile = (
@@ -323,22 +325,16 @@ export class GeminiClient {
 
       if (currentActiveFile) {
         if (!lastActiveFile || lastActiveFile.path !== currentActiveFile.path) {
-          if (changeLines.length > 0) {
-            changeLines.push('');
-          }
-          changeLines.push('Active file changed:');
-          changeLines.push(`  Path: ${currentActiveFile.path}`);
-          if (currentActiveFile.cursor) {
-            changeLines.push(
-              `  Cursor: line ${currentActiveFile.cursor.line}, character ${currentActiveFile.cursor.character}`,
-            );
-          }
-          if (currentActiveFile.selectedText) {
-            changeLines.push('  Selected text:');
-            changeLines.push('```');
-            changeLines.push(currentActiveFile.selectedText);
-            changeLines.push('```');
-          }
+          changes['activeFileChanged'] = {
+            path: currentActiveFile.path,
+            cursor: currentActiveFile.cursor
+              ? {
+                  line: currentActiveFile.cursor.line,
+                  character: currentActiveFile.cursor.character,
+                }
+              : undefined,
+            selectedText: currentActiveFile.selectedText || undefined,
+          };
         } else {
           const lastCursor = lastActiveFile.cursor;
           const currentCursor = currentActiveFile.cursor;
@@ -348,50 +344,42 @@ export class GeminiClient {
               lastCursor.line !== currentCursor.line ||
               lastCursor.character !== currentCursor.character)
           ) {
-            if (changeLines.length > 0) {
-              changeLines.push('');
-            }
-            changeLines.push('Cursor moved:');
-            changeLines.push(`  Path: ${currentActiveFile.path}`);
-            changeLines.push(
-              `  New position: line ${currentCursor.line}, character ${currentCursor.character}`,
-            );
+            changes['cursorMoved'] = {
+              path: currentActiveFile.path,
+              cursor: {
+                line: currentCursor.line,
+                character: currentCursor.character,
+              },
+            };
           }
 
           const lastSelectedText = lastActiveFile.selectedText || '';
           const currentSelectedText = currentActiveFile.selectedText || '';
           if (lastSelectedText !== currentSelectedText) {
-            if (changeLines.length > 0) {
-              changeLines.push('');
-            }
-            changeLines.push('Selection changed:');
-            changeLines.push(`  Path: ${currentActiveFile.path}`);
-            if (currentSelectedText) {
-              changeLines.push('  Selected text:');
-              changeLines.push('```');
-              changeLines.push(currentSelectedText);
-              changeLines.push('```');
-            } else {
-              changeLines.push('  Selected text: (none)');
-            }
+            changes['selectionChanged'] = {
+              path: currentActiveFile.path,
+              selectedText: currentSelectedText,
+            };
           }
         }
       } else if (lastActiveFile) {
-        if (changeLines.length > 0) {
-          changeLines.push('');
-        }
-        changeLines.push('Active file changed:');
-        changeLines.push('  No active file');
-        changeLines.push(`  Previous path: ${lastActiveFile.path}`);
+        changes['activeFileChanged'] = {
+          path: null,
+          previousPath: lastActiveFile.path,
+        };
       }
 
-      if (changeLines.length === 0) {
+      if (Object.keys(changes).length === 0) {
         return { contextParts: [], newIdeContext: currentIdeContext };
       }
 
+      delta['changes'] = changes;
+      const jsonString = JSON.stringify(delta, null, 2);
       const contextParts = [
-        "Here is a summary of changes in the user's editor context. This is for your information only.",
-        changeLines.join('\n'),
+        "Here is a summary of changes in the user's editor context, in JSON format. This is for your information only.",
+        '```json',
+        jsonString,
+        '```',
       ];
 
       if (this.config.getDebugMode()) {
@@ -408,18 +396,12 @@ export class GeminiClient {
     request: PartListUnion,
     signal: AbortSignal,
     prompt_id: string,
-    options?: { isContinuation: boolean },
     turns: number = MAX_TURNS,
   ): AsyncGenerator<ServerGeminiStreamEvent, Turn> {
-    if (!options?.isContinuation) {
+    const isNewPrompt = this.lastPromptId !== prompt_id;
+    if (isNewPrompt) {
       this.loopDetector.reset(prompt_id);
       this.lastPromptId = prompt_id;
-
-      // record user message for session management
-      this.config.getChatRecordingService()?.recordUserMessage(request);
-
-      // strip thoughts from history before sending the message
-      this.stripThoughtsFromHistory();
     }
     this.sessionTurnCount++;
     if (
@@ -528,7 +510,7 @@ export class GeminiClient {
 
     // append system reminders to the request
     let requestToSent = await flatMapTextParts(request, async (text) => [text]);
-    if (!options?.isContinuation) {
+    if (isNewPrompt) {
       const systemReminders = [];
 
       // add subagent system reminder if there are subagents
@@ -543,9 +525,7 @@ export class GeminiClient {
 
       // add plan mode system reminder if approval mode is plan
       if (this.config.getApprovalMode() === ApprovalMode.PLAN) {
-        systemReminders.push(
-          getPlanModeSystemReminder(this.config.getSdkMode()),
-        );
+        systemReminders.push(getPlanModeSystemReminder());
       }
 
       requestToSent = [...systemReminders, ...requestToSent];
@@ -569,6 +549,11 @@ export class GeminiClient {
       }
     }
     if (!turn.pendingToolCalls.length && signal && !signal.aborted) {
+      // Check if next speaker check is needed
+      if (this.config.getQuotaErrorOccurred()) {
+        return turn;
+      }
+
       if (this.config.getSkipNextSpeakerCheck()) {
         return turn;
       }
@@ -595,7 +580,6 @@ export class GeminiClient {
           nextRequest,
           signal,
           prompt_id,
-          options,
           boundedTurns - 1,
         );
       }
@@ -611,6 +595,11 @@ export class GeminiClient {
   ): Promise<GenerateContentResponse> {
     let currentAttemptModel: string = model;
 
+    const configToUse: GenerateContentConfig = {
+      ...this.generateContentConfig,
+      ...generationConfig,
+    };
+
     try {
       const userMemory = this.config.getUserMemory();
       const finalSystemInstruction = generationConfig.systemInstruction
@@ -619,20 +608,23 @@ export class GeminiClient {
 
       const requestConfig: GenerateContentConfig = {
         abortSignal,
-        ...generationConfig,
+        ...configToUse,
         systemInstruction: finalSystemInstruction,
       };
 
       const apiCall = () => {
-        currentAttemptModel = model;
+        const modelToUse = this.config.isInFallbackMode()
+          ? DEFAULT_GEMINI_FLASH_MODEL
+          : model;
+        currentAttemptModel = modelToUse;
 
         return this.getContentGeneratorOrFail().generateContent(
           {
-            model,
+            model: modelToUse,
             config: requestConfig,
             contents,
           },
-          this.lastPromptId!,
+          this.lastPromptId,
         );
       };
       const onPersistent429Callback = async (
@@ -657,7 +649,7 @@ export class GeminiClient {
         `Error generating content via API with model ${currentAttemptModel}.`,
         {
           requestContents: contents,
-          requestConfig: generationConfig,
+          requestConfig: configToUse,
         },
         'generateContent-api',
       );
@@ -686,14 +678,7 @@ export class GeminiClient {
     if (info.compressionStatus === CompressionStatus.COMPRESSED) {
       // Success: update chat with new compressed history
       if (newHistory) {
-        const chatRecordingService = this.config.getChatRecordingService();
-        chatRecordingService?.recordChatCompression({
-          info,
-          compressedHistory: newHistory,
-        });
-
         this.chat = await this.startChat(newHistory);
-        uiTelemetryService.setLastPromptTokenCount(info.newTokenCount);
         this.forceFullIdeContext = true;
       }
     } else if (

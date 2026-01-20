@@ -33,6 +33,7 @@ export const Footer: React.FC = () => {
     debugMode,
     branchName,
     debugMessage,
+    corgiMode,
     errorCount,
     showErrorDetails,
     promptTokenCount,
@@ -44,6 +45,7 @@ export const Footer: React.FC = () => {
     debugMode: config.getDebugMode(),
     branchName: uiState.branchName,
     debugMessage: uiState.debugMessage,
+    corgiMode: uiState.corgiMode,
     errorCount: uiState.errorCount,
     showErrorDetails: uiState.showErrorDetails,
     promptTokenCount: uiState.sessionStats.lastPromptTokenCount,
@@ -151,6 +153,16 @@ export const Footer: React.FC = () => {
             {showMemoryUsage && <MemoryUsageDisplay />}
           </Box>
           <Box alignItems="center" paddingLeft={2}>
+            {corgiMode && (
+              <Text>
+                <Text color={theme.ui.symbol}>| </Text>
+                <Text color={theme.status.error}>▼</Text>
+                <Text color={theme.text.primary}>(´</Text>
+                <Text color={theme.status.error}>ᴥ</Text>
+                <Text color={theme.text.primary}>`)</Text>
+                <Text color={theme.status.error}>▼ </Text>
+              </Text>
+            )}
             {!showErrorDetails && errorCount > 0 && (
               <Box>
                 <Text color={theme.ui.symbol}>| </Text>

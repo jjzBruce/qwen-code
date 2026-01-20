@@ -134,9 +134,7 @@ describe('Telemetry Metrics', () => {
     });
 
     it('records token compression with the correct attributes', () => {
-      const config = makeFakeConfig({
-        sessionId: 'test-session-id',
-      });
+      const config = makeFakeConfig({});
       initializeMetricsModule(config);
 
       recordChatCompressionMetricsModule(config, {

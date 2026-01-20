@@ -15,7 +15,11 @@ import {
 } from 'vitest';
 
 import type { Content, GenerateContentResponse, Part } from '@google/genai';
-import { GeminiClient } from './client.js';
+import {
+  isThinkingDefault,
+  isThinkingSupported,
+  GeminiClient,
+} from './client.js';
 import { findCompressSplitPoint } from '../services/chatCompressionService.js';
 import {
   AuthType,
@@ -32,7 +36,7 @@ import {
   type ChatCompressionInfo,
 } from './turn.js';
 import { getCoreSystemPrompt } from './prompts.js';
-import { DEFAULT_QWEN_FLASH_MODEL } from '../config/models.js';
+import { DEFAULT_GEMINI_FLASH_MODEL } from '../config/models.js';
 import { FileDiscoveryService } from '../services/fileDiscoveryService.js';
 import { setSimulate429 } from '../utils/testUtils.js';
 import { tokenLimit } from './tokenLimits.js';
@@ -57,7 +61,6 @@ vi.mock('node:fs', () => {
       });
     }),
     existsSync: vi.fn((path: string) => mockFileSystem.has(path)),
-    appendFileSync: vi.fn(),
   };
 
   return {
@@ -243,6 +246,40 @@ describe('findCompressSplitPoint', () => {
   });
 });
 
+describe('isThinkingSupported', () => {
+  it('should return true for gemini-2.5', () => {
+    expect(isThinkingSupported('gemini-2.5')).toBe(true);
+  });
+
+  it('should return true for gemini-2.5-pro', () => {
+    expect(isThinkingSupported('gemini-2.5-pro')).toBe(true);
+  });
+
+  it('should return false for other models', () => {
+    expect(isThinkingSupported('gemini-1.5-flash')).toBe(false);
+    expect(isThinkingSupported('some-other-model')).toBe(false);
+  });
+});
+
+describe('isThinkingDefault', () => {
+  it('should return false for gemini-2.5-flash-lite', () => {
+    expect(isThinkingDefault('gemini-2.5-flash-lite')).toBe(false);
+  });
+
+  it('should return true for gemini-2.5', () => {
+    expect(isThinkingDefault('gemini-2.5')).toBe(true);
+  });
+
+  it('should return true for gemini-2.5-pro', () => {
+    expect(isThinkingDefault('gemini-2.5-pro')).toBe(true);
+  });
+
+  it('should return false for other models', () => {
+    expect(isThinkingDefault('gemini-1.5-flash')).toBe(false);
+    expect(isThinkingDefault('some-other-model')).toBe(false);
+  });
+});
+
 describe('Gemini Client (client.ts)', () => {
   let mockContentGenerator: ContentGenerator;
   let mockConfig: Config;
@@ -302,6 +339,8 @@ describe('Gemini Client (client.ts)', () => {
       getFileService: vi.fn().mockReturnValue(fileService),
       getMaxSessionTurns: vi.fn().mockReturnValue(0),
       getSessionTokenLimit: vi.fn().mockReturnValue(32000),
+      getQuotaErrorOccurred: vi.fn().mockReturnValue(false),
+      setQuotaErrorOccurred: vi.fn(),
       getNoBrowser: vi.fn().mockReturnValue(false),
       getUsageStatisticsEnabled: vi.fn().mockReturnValue(true),
       getApprovalMode: vi.fn().mockReturnValue(ApprovalMode.DEFAULT),
@@ -315,6 +354,8 @@ describe('Gemini Client (client.ts)', () => {
       getModelRouterService: vi.fn().mockReturnValue({
         route: vi.fn().mockResolvedValue({ model: 'default-routed-model' }),
       }),
+      isInFallbackMode: vi.fn().mockReturnValue(false),
+      setFallbackMode: vi.fn(),
       getCliVersion: vi.fn().mockReturnValue('1.0.0'),
       getChatCompression: vi.fn().mockReturnValue(undefined),
       getSkipNextSpeakerCheck: vi.fn().mockReturnValue(false),
@@ -323,9 +364,6 @@ describe('Gemini Client (client.ts)', () => {
       getProjectRoot: vi.fn().mockReturnValue('/test/project/root'),
       storage: {
         getProjectTempDir: vi.fn().mockReturnValue('/test/temp'),
-        getProjectDir: vi
-          .fn()
-          .mockReturnValue('/test/project/root/.gemini/projects/test-project'),
       },
       getContentGenerator: vi.fn().mockReturnValue(mockContentGenerator),
       getBaseLlmClient: vi.fn().mockReturnValue({
@@ -336,8 +374,6 @@ describe('Gemini Client (client.ts)', () => {
       }),
       getSubagentManager: vi.fn().mockReturnValue(mockSubagentManager),
       getSkipLoopDetection: vi.fn().mockReturnValue(false),
-      getChatRecordingService: vi.fn().mockReturnValue(undefined),
-      getResumedSessionData: vi.fn().mockReturnValue(undefined),
     } as unknown as Config;
 
     client = new GeminiClient(mockConfig);
@@ -406,7 +442,6 @@ describe('Gemini Client (client.ts)', () => {
         getHistory: mockGetHistory,
         addHistory: vi.fn(),
         setHistory: vi.fn(),
-        stripThoughtsFromHistory: vi.fn(),
       } as unknown as GeminiChat;
     });
 
@@ -421,7 +456,6 @@ describe('Gemini Client (client.ts)', () => {
       const mockOriginalChat: Partial<GeminiChat> = {
         getHistory: vi.fn((_curated?: boolean) => chatHistory),
         setHistory: vi.fn(),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockOriginalChat as GeminiChat;
 
@@ -1040,7 +1074,6 @@ describe('Gemini Client (client.ts)', () => {
       const mockChat = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       } as unknown as GeminiChat;
       client['chat'] = mockChat;
 
@@ -1058,18 +1091,26 @@ describe('Gemini Client (client.ts)', () => {
 
       // Assert
       expect(ideContextStore.get).toHaveBeenCalled();
-      const expectedContext = `Here is the user's editor context. This is for your information only.
-Active file:
-  Path: /path/to/active/file.ts
-  Cursor: line 5, character 10
-  Selected text:
+      const expectedContext = `
+Here is the user's editor context as a JSON object. This is for your information only.
+\`\`\`json
+${JSON.stringify(
+  {
+    activeFile: {
+      path: '/path/to/active/file.ts',
+      cursor: {
+        line: 5,
+        character: 10,
+      },
+      selectedText: 'hello',
+    },
+    otherOpenFiles: ['/path/to/recent/file1.ts', '/path/to/recent/file2.ts'],
+  },
+  null,
+  2,
+)}
 \`\`\`
-hello
-\`\`\`
-
-Other open files:
-  - /path/to/recent/file1.ts
-  - /path/to/recent/file2.ts`;
+      `.trim();
       const expectedRequest = [{ text: expectedContext }];
       expect(mockChat.addHistory).toHaveBeenCalledWith({
         role: 'user',
@@ -1095,7 +1136,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -1151,7 +1191,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -1169,14 +1208,25 @@ Other open files:
 
       // Assert
       expect(ideContextStore.get).toHaveBeenCalled();
-      const expectedContext = `Here is the user's editor context. This is for your information only.
-Active file:
-  Path: /path/to/active/file.ts
-  Cursor: line 5, character 10
-  Selected text:
+      const expectedContext = `
+Here is the user's editor context as a JSON object. This is for your information only.
+\`\`\`json
+${JSON.stringify(
+  {
+    activeFile: {
+      path: '/path/to/active/file.ts',
+      cursor: {
+        line: 5,
+        character: 10,
+      },
+      selectedText: 'hello',
+    },
+  },
+  null,
+  2,
+)}
 \`\`\`
-hello
-\`\`\``;
+      `.trim();
       const expectedRequest = [{ text: expectedContext }];
       expect(mockChat.addHistory).toHaveBeenCalledWith({
         role: 'user',
@@ -1217,7 +1267,6 @@ hello
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -1235,10 +1284,18 @@ hello
 
       // Assert
       expect(ideContextStore.get).toHaveBeenCalled();
-      const expectedContext = `Here is the user's editor context. This is for your information only.
-Other open files:
-  - /path/to/recent/file1.ts
-  - /path/to/recent/file2.ts`;
+      const expectedContext = `
+Here is the user's editor context as a JSON object. This is for your information only.
+\`\`\`json
+${JSON.stringify(
+  {
+    otherOpenFiles: ['/path/to/recent/file1.ts', '/path/to/recent/file2.ts'],
+  },
+  null,
+  2,
+)}
+\`\`\`
+      `.trim();
       const expectedRequest = [{ text: expectedContext }];
       expect(mockChat.addHistory).toHaveBeenCalledWith({
         role: 'user',
@@ -1256,7 +1313,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -1301,7 +1357,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -1389,7 +1444,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -1446,7 +1500,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -1460,7 +1513,6 @@ Other open files:
         [{ text: 'Start conversation' }],
         signal,
         'prompt-id-3',
-        { isContinuation: false },
         Number.MAX_SAFE_INTEGER, // Bypass the MAX_TURNS protection
       );
 
@@ -1527,7 +1579,6 @@ Other open files:
             .mockReturnValue([
               { role: 'user', parts: [{ text: 'previous message' }] },
             ]),
-          stripThoughtsFromHistory: vi.fn(),
         };
         client['chat'] = mockChat as GeminiChat;
       });
@@ -1755,9 +1806,11 @@ Other open files:
         // Also verify it's the full context, not a delta.
         const call = mockChat.addHistory.mock.calls[0][0];
         const contextText = call.parts[0].text;
-        // Verify it contains the active file information in plain text format
-        expect(contextText).toContain('Active file:');
-        expect(contextText).toContain('Path: /path/to/active/file.ts');
+        const contextJson = JSON.parse(
+          contextText.match(/```json\n(.*)\n```/s)![1],
+        );
+        expect(contextJson).toHaveProperty('activeFile');
+        expect(contextJson.activeFile.path).toBe('/path/to/active/file.ts');
       });
     });
 
@@ -1780,7 +1833,6 @@ Other open files:
           addHistory: vi.fn(),
           getHistory: vi.fn().mockReturnValue([]), // Default empty history
           setHistory: vi.fn(),
-          stripThoughtsFromHistory: vi.fn(),
         };
         client['chat'] = mockChat as GeminiChat;
 
@@ -1960,7 +2012,7 @@ Other open files:
         );
         expect(contextCall).toBeDefined();
         expect(JSON.stringify(contextCall![0])).toContain(
-          "Here is the user's editor context.",
+          "Here is the user's editor context as a JSON object",
         );
         // Check that the sent context is the new one (fileB.ts)
         expect(JSON.stringify(contextCall![0])).toContain('fileB.ts');
@@ -1996,7 +2048,9 @@ Other open files:
 
         // Assert: Full context for fileA.ts was sent and stored.
         const initialCall = vi.mocked(mockChat.addHistory!).mock.calls[0][0];
-        expect(JSON.stringify(initialCall)).toContain("user's editor context.");
+        expect(JSON.stringify(initialCall)).toContain(
+          "user's editor context as a JSON object",
+        );
         expect(JSON.stringify(initialCall)).toContain('fileA.ts');
         // This implicitly tests that `lastSentIdeContext` is now set internally by the client.
         vi.mocked(mockChat.addHistory!).mockClear();
@@ -2094,9 +2148,9 @@ Other open files:
         const finalCall = vi.mocked(mockChat.addHistory!).mock.calls[0][0];
         expect(JSON.stringify(finalCall)).toContain('summary of changes');
         // The delta should reflect fileA being closed and fileC being opened.
-        expect(JSON.stringify(finalCall)).toContain('Files closed');
+        expect(JSON.stringify(finalCall)).toContain('filesClosed');
         expect(JSON.stringify(finalCall)).toContain('fileA.ts');
-        expect(JSON.stringify(finalCall)).toContain('Active file changed');
+        expect(JSON.stringify(finalCall)).toContain('activeFileChanged');
         expect(JSON.stringify(finalCall)).toContain('fileC.ts');
       });
     });
@@ -2119,7 +2173,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -2156,7 +2209,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -2197,7 +2249,6 @@ Other open files:
       const mockChat: Partial<GeminiChat> = {
         addHistory: vi.fn(),
         getHistory: vi.fn().mockReturnValue([]),
-        stripThoughtsFromHistory: vi.fn(),
       };
       client['chat'] = mockChat as GeminiChat;
 
@@ -2227,19 +2278,20 @@ Other open files:
         contents,
         generationConfig,
         abortSignal,
-        DEFAULT_QWEN_FLASH_MODEL,
+        DEFAULT_GEMINI_FLASH_MODEL,
       );
 
       expect(mockContentGenerator.generateContent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          model: DEFAULT_QWEN_FLASH_MODEL,
-          config: expect.objectContaining({
+        {
+          model: DEFAULT_GEMINI_FLASH_MODEL,
+          config: {
             abortSignal,
             systemInstruction: getCoreSystemPrompt(''),
             temperature: 0.5,
-          }),
+            topP: 1,
+          },
           contents,
-        }),
+        },
         'test-session-id',
       );
     });
@@ -2255,7 +2307,7 @@ Other open files:
         contents,
         {},
         new AbortController().signal,
-        DEFAULT_QWEN_FLASH_MODEL,
+        DEFAULT_GEMINI_FLASH_MODEL,
       );
 
       expect(mockContentGenerator.generateContent).not.toHaveBeenCalledWith({
@@ -2265,7 +2317,7 @@ Other open files:
       });
       expect(mockContentGenerator.generateContent).toHaveBeenCalledWith(
         {
-          model: DEFAULT_QWEN_FLASH_MODEL,
+          model: DEFAULT_GEMINI_FLASH_MODEL,
           config: expect.any(Object),
           contents,
         },
@@ -2273,7 +2325,28 @@ Other open files:
       );
     });
 
-    // Note: there is currently no "fallback mode" model routing; the model used
-    // is always the one explicitly requested by the caller.
+    it('should use the Flash model when fallback mode is active', async () => {
+      const contents = [{ role: 'user', parts: [{ text: 'hello' }] }];
+      const generationConfig = { temperature: 0.5 };
+      const abortSignal = new AbortController().signal;
+      const requestedModel = 'gemini-2.5-pro'; // A non-flash model
+
+      // Mock config to be in fallback mode
+      vi.spyOn(client['config'], 'isInFallbackMode').mockReturnValue(true);
+
+      await client.generateContent(
+        contents,
+        generationConfig,
+        abortSignal,
+        requestedModel,
+      );
+
+      expect(mockGenerateContentFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: DEFAULT_GEMINI_FLASH_MODEL,
+        }),
+        'test-session-id',
+      );
+    });
   });
 });

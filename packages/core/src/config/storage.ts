@@ -14,8 +14,6 @@ export const GOOGLE_ACCOUNTS_FILENAME = 'google_accounts.json';
 export const OAUTH_FILE = 'oauth_creds.json';
 const TMP_DIR_NAME = 'tmp';
 const BIN_DIR_NAME = 'bin';
-const PROJECT_DIR_NAME = 'projects';
-const IDE_DIR_NAME = 'ide';
 
 export class Storage {
   private readonly targetDir: string;
@@ -60,22 +58,12 @@ export class Storage {
     return path.join(Storage.getGlobalQwenDir(), TMP_DIR_NAME);
   }
 
-  static getGlobalIdeDir(): string {
-    return path.join(Storage.getGlobalQwenDir(), IDE_DIR_NAME);
-  }
-
   static getGlobalBinDir(): string {
     return path.join(Storage.getGlobalQwenDir(), BIN_DIR_NAME);
   }
 
   getQwenDir(): string {
     return path.join(this.targetDir, QWEN_DIR);
-  }
-
-  getProjectDir(): string {
-    const projectId = this.sanitizeCwd(this.getProjectRoot());
-    const projectsDir = path.join(Storage.getGlobalQwenDir(), PROJECT_DIR_NAME);
-    return path.join(projectsDir, projectId);
   }
 
   getProjectTempDir(): string {
@@ -126,15 +114,7 @@ export class Storage {
     return path.join(this.getExtensionsDir(), 'qwen-extension.json');
   }
 
-  getUserSkillsDir(): string {
-    return path.join(Storage.getGlobalQwenDir(), 'skills');
-  }
-
   getHistoryFilePath(): string {
     return path.join(this.getProjectTempDir(), 'shell_history');
-  }
-
-  private sanitizeCwd(cwd: string): string {
-    return cwd.replace(/[^a-zA-Z0-9]/g, '-');
   }
 }

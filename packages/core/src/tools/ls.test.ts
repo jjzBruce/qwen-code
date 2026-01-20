@@ -31,8 +31,6 @@ describe('LSTool', () => {
       tempSecondaryDir,
     ]);
 
-    const userSkillsBase = path.join(os.homedir(), '.qwen', 'skills');
-
     mockConfig = {
       getTargetDir: () => tempRootDir,
       getWorkspaceContext: () => mockWorkspaceContext,
@@ -41,9 +39,6 @@ describe('LSTool', () => {
         respectGitIgnore: true,
         respectQwenIgnore: true,
       }),
-      storage: {
-        getUserSkillsDir: () => userSkillsBase,
-      },
     } as unknown as Config;
 
     lsTool = new LSTool(mockConfig);
@@ -293,7 +288,7 @@ describe('LSTool', () => {
       };
       const invocation = lsTool.build(params);
       const description = invocation.getDescription();
-      const expected = path.resolve(params.path);
+      const expected = path.relative(tempRootDir, params.path);
       expect(description).toBe(expected);
     });
   });

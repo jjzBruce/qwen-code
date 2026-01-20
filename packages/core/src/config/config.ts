@@ -17,7 +17,7 @@ import type {
   ContentGenerator,
   ContentGeneratorConfig,
 } from '../core/contentGenerator.js';
-import type { ContentGeneratorConfigSources } from '../core/contentGenerator.js';
+import type { FallbackModelHandler } from '../fallback/types.js';
 import type { MCPOAuthConfig } from '../mcp/oauth-provider.js';
 import type { ShellExecutionConfig } from '../services/shellExecutionService.js';
 import type { AnyToolInvocation } from '../tools/tools.js';
@@ -28,7 +28,7 @@ import { GeminiClient } from '../core/client.js';
 import {
   AuthType,
   createContentGenerator,
-  resolveContentGeneratorConfigWithSources,
+  createContentGeneratorConfig,
 } from '../core/contentGenerator.js';
 import { tokenLimit } from '../core/tokenLimits.js';
 
@@ -46,7 +46,6 @@ import { ExitPlanModeTool } from '../tools/exitPlanMode.js';
 import { GlobTool } from '../tools/glob.js';
 import { GrepTool } from '../tools/grep.js';
 import { LSTool } from '../tools/ls.js';
-import type { SendSdkMcpMessage } from '../tools/mcp-client.js';
 import { MemoryTool, setGeminiMdFilename } from '../tools/memoryTool.js';
 import { ReadFileTool } from '../tools/read-file.js';
 import { ReadManyFilesTool } from '../tools/read-many-files.js';
@@ -54,7 +53,6 @@ import { canUseRipgrep } from '../utils/ripgrepUtils.js';
 import { RipGrepTool } from '../tools/ripGrep.js';
 import { ShellTool } from '../tools/shell.js';
 import { SmartEditTool } from '../tools/smart-edit.js';
-import { SkillTool } from '../tools/skill.js';
 import { TaskTool } from '../tools/task.js';
 import { TodoWriteTool } from '../tools/todoWrite.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
@@ -66,14 +64,12 @@ import { WriteFileTool } from '../tools/write-file.js';
 import { ideContextStore } from '../ide/ideContext.js';
 import { InputFormat, OutputFormat } from '../output/types.js';
 import { PromptRegistry } from '../prompts/prompt-registry.js';
-import { SkillManager } from '../skills/skill-manager.js';
 import { SubagentManager } from '../subagents/subagent-manager.js';
-import type { SubagentConfig } from '../subagents/types.js';
 import {
   DEFAULT_OTLP_ENDPOINT,
   DEFAULT_TELEMETRY_TARGET,
   initializeTelemetry,
-  logStartSession,
+  logCliConfiguration,
   logRipgrepFallback,
   RipgrepFallbackEvent,
   StartSessionEvent,
@@ -94,20 +90,9 @@ import {
   DEFAULT_FILE_FILTERING_OPTIONS,
   DEFAULT_MEMORY_FILE_FILTERING_OPTIONS,
 } from './constants.js';
-import { DEFAULT_QWEN_EMBEDDING_MODEL } from './models.js';
+import { DEFAULT_QWEN_EMBEDDING_MODEL, DEFAULT_QWEN_MODEL } from './models.js';
 import { Storage } from './storage.js';
-import { ChatRecordingService } from '../services/chatRecordingService.js';
-import {
-  SessionService,
-  type ResumedSessionData,
-} from '../services/sessionService.js';
-import { randomUUID } from 'node:crypto';
-
-import {
-  ModelsConfig,
-  type ModelProvidersConfig,
-  type AvailableModel,
-} from '../models/index.js';
+import { DEFAULT_DASHSCOPE_BASE_URL } from '../core/openaiContentGenerator/constants.js';
 
 // Re-export types
 export type { AnyToolInvocation, FileFilteringOptions, MCPOAuthConfig };
@@ -124,42 +109,6 @@ export enum ApprovalMode {
 }
 
 export const APPROVAL_MODES = Object.values(ApprovalMode);
-
-/**
- * Information about an approval mode including display name and description.
- */
-export interface ApprovalModeInfo {
-  id: ApprovalMode;
-  name: string;
-  description: string;
-}
-
-/**
- * Detailed information about each approval mode.
- * Used for UI display and protocol responses.
- */
-export const APPROVAL_MODE_INFO: Record<ApprovalMode, ApprovalModeInfo> = {
-  [ApprovalMode.PLAN]: {
-    id: ApprovalMode.PLAN,
-    name: 'Plan',
-    description: 'Analyze only, do not modify files or execute commands',
-  },
-  [ApprovalMode.DEFAULT]: {
-    id: ApprovalMode.DEFAULT,
-    name: 'Default',
-    description: 'Require approval for file edits or shell commands',
-  },
-  [ApprovalMode.AUTO_EDIT]: {
-    id: ApprovalMode.AUTO_EDIT,
-    name: 'Auto Edit',
-    description: 'Automatically approve file edits',
-  },
-  [ApprovalMode.YOLO]: {
-    id: ApprovalMode.YOLO,
-    name: 'YOLO',
-    description: 'Automatically approve all tools',
-  },
-};
 
 export interface AccessibilitySettings {
   disableLoadingPhrases?: boolean;
@@ -247,16 +196,7 @@ export class MCPServerConfig {
     readonly targetAudience?: string,
     /* targetServiceAccount format: <service-account-name>@<project-num>.iam.gserviceaccount.com */
     readonly targetServiceAccount?: string,
-    // SDK MCP server type - 'sdk' indicates server runs in SDK process
-    readonly type?: 'sdk',
   ) {}
-}
-
-/**
- * Check if an MCP server config represents an SDK server
- */
-export function isSdkMcpServerConfig(config: MCPServerConfig): boolean {
-  return config.type === 'sdk';
 }
 
 export enum AuthProviderType {
@@ -271,8 +211,7 @@ export interface SandboxConfig {
 }
 
 export interface ConfigParameters {
-  sessionId?: string;
-  sessionData?: ResumedSessionData;
+  sessionId: string;
   embeddingModel?: string;
   sandbox?: SandboxConfig;
   targetDir: string;
@@ -294,7 +233,7 @@ export interface ConfigParameters {
   contextFileName?: string | string[];
   accessibility?: AccessibilitySettings;
   telemetry?: TelemetrySettings;
-  gitCoAuthor?: boolean;
+  gitCoAuthor?: GitCoAuthorSettings;
   usageStatisticsEnabled?: boolean;
   fileFiltering?: {
     respectGitIgnore?: boolean;
@@ -312,7 +251,6 @@ export interface ConfigParameters {
   extensionContextFilePaths?: string[];
   maxSessionTurns?: number;
   sessionTokenLimit?: number;
-  experimentalSkills?: boolean;
   experimentalZedIntegration?: boolean;
   listExtensions?: boolean;
   extensions?: GeminiCLIExtension[];
@@ -324,14 +262,8 @@ export interface ConfigParameters {
   ideMode?: boolean;
   authType?: AuthType;
   generationConfig?: Partial<ContentGeneratorConfig>;
-  /**
-   * Optional source map for generationConfig fields (e.g. CLI/env/settings attribution).
-   * This is used to produce per-field source badges in the UI.
-   */
-  generationConfigSources?: ContentGeneratorConfigSources;
   cliVersion?: string;
   loadMemoryFromIncludeDirectories?: boolean;
-  chatRecording?: boolean;
   // Web search providers
   webSearch?: {
     provider: Array<{
@@ -358,14 +290,9 @@ export interface ConfigParameters {
   eventEmitter?: EventEmitter;
   useSmartEdit?: boolean;
   output?: OutputSettings;
+  skipStartupContext?: boolean;
   inputFormat?: InputFormat;
   outputFormat?: OutputFormat;
-  skipStartupContext?: boolean;
-  sdkMode?: boolean;
-  sessionSubagents?: SubagentConfig[];
-  channel?: string;
-  /** Model providers configuration grouped by authType */
-  modelProvidersConfig?: ModelProvidersConfig;
 }
 
 function normalizeConfigOutputFormat(
@@ -387,32 +314,16 @@ function normalizeConfigOutputFormat(
   }
 }
 
-/**
- * Options for Config.initialize()
- */
-export interface ConfigInitializeOptions {
-  /**
-   * Callback for sending MCP messages to SDK servers via control plane.
-   * Required for SDK MCP server support in SDK mode.
-   */
-  sendSdkMcpMessage?: SendSdkMcpMessage;
-}
-
 export class Config {
-  private sessionId: string;
-  private sessionData?: ResumedSessionData;
   private toolRegistry!: ToolRegistry;
   private promptRegistry!: PromptRegistry;
   private subagentManager!: SubagentManager;
-  private skillManager!: SkillManager;
+  private readonly sessionId: string;
   private fileSystemService: FileSystemService;
   private contentGeneratorConfig!: ContentGeneratorConfig;
-  private contentGeneratorConfigSources: ContentGeneratorConfigSources = {};
   private contentGenerator!: ContentGenerator;
+  private _generationConfig: Partial<ContentGeneratorConfig>;
   private readonly embeddingModel: string;
-
-  private _modelsConfig!: ModelsConfig;
-  private readonly modelProvidersConfig?: ModelProvidersConfig;
   private readonly sandbox: SandboxConfig | undefined;
   private readonly targetDir: string;
   private workspaceContext: WorkspaceContext;
@@ -428,10 +339,8 @@ export class Config {
   private readonly toolDiscoveryCommand: string | undefined;
   private readonly toolCallCommand: string | undefined;
   private readonly mcpServerCommand: string | undefined;
-  private mcpServers: Record<string, MCPServerConfig> | undefined;
-  private sessionSubagents: SubagentConfig[];
+  private readonly mcpServers: Record<string, MCPServerConfig> | undefined;
   private userMemory: string;
-  private sdkMode: boolean;
   private geminiMdFileCount: number;
   private approvalMode: ApprovalMode;
   private readonly showMemoryUsage: boolean;
@@ -449,8 +358,6 @@ export class Config {
   };
   private fileDiscoveryService: FileDiscoveryService | null = null;
   private gitService: GitService | undefined = undefined;
-  private sessionService: SessionService | undefined = undefined;
-  private chatRecordingService: ChatRecordingService | undefined = undefined;
   private readonly checkpointing: boolean;
   private readonly proxy: string | undefined;
   private readonly cwd: string;
@@ -461,6 +368,7 @@ export class Config {
   private readonly folderTrust: boolean;
   private ideMode: boolean;
 
+  private inFallbackMode = false;
   private readonly maxSessionTurns: number;
   private readonly sessionTokenLimit: number;
   private readonly listExtensions: boolean;
@@ -469,13 +377,13 @@ export class Config {
     name: string;
     extensionName: string;
   }>;
+  fallbackModelHandler?: FallbackModelHandler;
+  private quotaErrorOccurred: boolean = false;
   private readonly summarizeToolOutput:
     | Record<string, SummarizeToolOutputSettings>
     | undefined;
   private readonly cliVersion?: string;
   private readonly experimentalZedIntegration: boolean = false;
-  private readonly experimentalSkills: boolean = false;
-  private readonly chatRecordingEnabled: boolean;
   private readonly loadMemoryFromIncludeDirectories: boolean = false;
   private readonly webSearch?: {
     provider: Array<{
@@ -505,11 +413,9 @@ export class Config {
   private readonly enableToolOutputTruncation: boolean;
   private readonly eventEmitter?: EventEmitter;
   private readonly useSmartEdit: boolean;
-  private readonly channel: string | undefined;
 
   constructor(params: ConfigParameters) {
-    this.sessionId = params.sessionId ?? randomUUID();
-    this.sessionData = params.sessionData;
+    this.sessionId = params.sessionId;
     this.embeddingModel = params.embeddingModel ?? DEFAULT_QWEN_EMBEDDING_MODEL;
     this.fileSystemService = new StandardFileSystemService();
     this.sandbox = params.sandbox;
@@ -534,8 +440,6 @@ export class Config {
     this.toolCallCommand = params.toolCallCommand;
     this.mcpServerCommand = params.mcpServerCommand;
     this.mcpServers = params.mcpServers;
-    this.sessionSubagents = params.sessionSubagents ?? [];
-    this.sdkMode = params.sdkMode ?? false;
     this.userMemory = params.userMemory ?? '';
     this.geminiMdFileCount = params.geminiMdFileCount ?? 0;
     this.approvalMode = params.approvalMode ?? ApprovalMode.DEFAULT;
@@ -551,9 +455,9 @@ export class Config {
       useCollector: params.telemetry?.useCollector,
     };
     this.gitCoAuthor = {
-      enabled: params.gitCoAuthor ?? true,
-      name: 'Qwen-Coder',
-      email: 'qwen-coder@alibabacloud.com',
+      enabled: params.gitCoAuthor?.enabled ?? true,
+      name: params.gitCoAuthor?.name ?? 'Qwen-Coder',
+      email: params.gitCoAuthor?.email ?? 'qwen-coder@alibabacloud.com',
     };
     this.usageStatisticsEnabled = params.usageStatisticsEnabled ?? true;
 
@@ -574,7 +478,6 @@ export class Config {
     this.sessionTokenLimit = params.sessionTokenLimit ?? -1;
     this.experimentalZedIntegration =
       params.experimentalZedIntegration ?? false;
-    this.experimentalSkills = params.experimentalSkills ?? false;
     this.listExtensions = params.listExtensions ?? false;
     this._extensions = params.extensions ?? [];
     this._blockedMcpServers = params.blockedMcpServers ?? [];
@@ -583,10 +486,14 @@ export class Config {
     this.folderTrustFeature = params.folderTrustFeature ?? false;
     this.folderTrust = params.folderTrust ?? false;
     this.ideMode = params.ideMode ?? false;
-    this.modelProvidersConfig = params.modelProvidersConfig;
+    this._generationConfig = {
+      model: params.model,
+      ...(params.generationConfig || {}),
+      baseUrl: params.generationConfig?.baseUrl || DEFAULT_DASHSCOPE_BASE_URL,
+    };
+    this.contentGeneratorConfig = this
+      ._generationConfig as ContentGeneratorConfig;
     this.cliVersion = params.cliVersion;
-
-    this.chatRecordingEnabled = params.chatRecording ?? true;
 
     this.loadMemoryFromIncludeDirectories =
       params.loadMemoryFromIncludeDirectories ?? false;
@@ -616,7 +523,6 @@ export class Config {
     this.enableToolOutputTruncation = params.enableToolOutputTruncation ?? true;
     this.useSmartEdit = params.useSmartEdit ?? false;
     this.extensionManagement = params.extensionManagement ?? true;
-    this.channel = params.channel;
     this.storage = new Storage(this.targetDir);
     this.vlmSwitchMode = params.vlmSwitchMode;
     this.inputFormat = params.inputFormat ?? InputFormat.TEXT;
@@ -626,22 +532,6 @@ export class Config {
       setGeminiMdFilename(params.contextFileName);
     }
 
-    // Create ModelsConfig for centralized model management
-    // Prefer params.authType over generationConfig.authType because:
-    // - params.authType preserves undefined (user hasn't selected yet)
-    // - generationConfig.authType may have a default value from resolvers
-    this._modelsConfig = new ModelsConfig({
-      initialAuthType: params.authType ?? params.generationConfig?.authType,
-      modelProvidersConfig: this.modelProvidersConfig,
-      generationConfig: {
-        model: params.model,
-        ...(params.generationConfig || {}),
-        baseUrl: params.generationConfig?.baseUrl,
-      },
-      generationConfigSources: params.generationConfigSources,
-      onModelChange: this.handleModelChange.bind(this),
-    });
-
     if (this.telemetrySettings.enabled) {
       initializeTelemetry(this);
     }
@@ -650,16 +540,12 @@ export class Config {
       setGlobalDispatcher(new ProxyAgent(this.getProxy() as string));
     }
     this.geminiClient = new GeminiClient(this);
-    this.chatRecordingService = this.chatRecordingEnabled
-      ? new ChatRecordingService(this)
-      : undefined;
   }
 
   /**
    * Must only be called once, throws if called again.
-   * @param options Optional initialization options including sendSdkMcpMessage callback
    */
-  async initialize(options?: ConfigInitializeOptions): Promise<void> {
+  async initialize(): Promise<void> {
     if (this.initialized) {
       throw Error('Config was already initialized');
     }
@@ -672,21 +558,9 @@ export class Config {
     }
     this.promptRegistry = new PromptRegistry();
     this.subagentManager = new SubagentManager(this);
-    this.skillManager = new SkillManager(this);
-    await this.skillManager.startWatching();
-
-    // Load session subagents if they were provided before initialization
-    if (this.sessionSubagents.length > 0) {
-      this.subagentManager.loadSessionSubagents(this.sessionSubagents);
-    }
-
-    this.toolRegistry = await this.createToolRegistry(
-      options?.sendSdkMcpMessage,
-    );
+    this.toolRegistry = await this.createToolRegistry();
 
     await this.geminiClient.initialize();
-
-    logStartSession(this, new StartSessionEvent(this));
   }
 
   getContentGenerator(): ContentGenerator {
@@ -694,60 +568,58 @@ export class Config {
   }
 
   /**
-   * Get the ModelsConfig instance for model-related operations.
-   * External code (e.g., CLI) can use this to access model configuration.
-   */
-  get modelsConfig(): ModelsConfig {
-    return this._modelsConfig;
-  }
-
-  /**
    * Updates the credentials in the generation config.
-   * Exclusive for `OpenAIKeyPrompt` to update credentials via `/auth`
-   * Delegates to ModelsConfig.
+   * This is needed when credentials are set after Config construction.
    */
   updateCredentials(credentials: {
     apiKey?: string;
     baseUrl?: string;
     model?: string;
   }): void {
-    this._modelsConfig.updateCredentials(credentials);
+    if (credentials.apiKey) {
+      this._generationConfig.apiKey = credentials.apiKey;
+    }
+    if (credentials.baseUrl) {
+      this._generationConfig.baseUrl = credentials.baseUrl;
+    }
+    if (credentials.model) {
+      this._generationConfig.model = credentials.model;
+    }
   }
 
-  /**
-   * Refresh authentication and rebuild ContentGenerator.
-   */
   async refreshAuth(authMethod: AuthType, isInitialAuth?: boolean) {
-    // Sync modelsConfig state for this auth refresh
-    const modelId = this._modelsConfig.getModel();
-    this._modelsConfig.syncAfterAuthRefresh(authMethod, modelId);
+    // Vertex and Genai have incompatible encryption and sending history with
+    // throughtSignature from Genai to Vertex will fail, we need to strip them
+    if (
+      this.contentGeneratorConfig?.authType === AuthType.USE_GEMINI &&
+      authMethod === AuthType.LOGIN_WITH_GOOGLE
+    ) {
+      // Restore the conversation history to the new client
+      this.geminiClient.stripThoughtsFromHistory();
+    }
 
-    // Check and consume cached credentials flag
-    const requireCached =
-      this._modelsConfig.consumeRequireCachedCredentialsFlag();
-
-    const { config, sources } = resolveContentGeneratorConfigWithSources(
+    const newContentGeneratorConfig = createContentGeneratorConfig(
       this,
       authMethod,
-      this._modelsConfig.getGenerationConfig(),
-      this._modelsConfig.getGenerationConfigSources(),
-      {
-        strictModelProvider:
-          this._modelsConfig.isStrictModelProviderSelection(),
-      },
+      this._generationConfig,
     );
-    const newContentGeneratorConfig = config;
     this.contentGenerator = await createContentGenerator(
       newContentGeneratorConfig,
       this,
-      requireCached ? true : isInitialAuth,
+      this.getSessionId(),
+      isInitialAuth,
     );
     // Only assign to instance properties after successful initialization
     this.contentGeneratorConfig = newContentGeneratorConfig;
-    this.contentGeneratorConfigSources = sources;
 
     // Initialize BaseLlmClient now that the ContentGenerator is available
     this.baseLlmClient = new BaseLlmClient(this.contentGenerator, this);
+
+    // Reset the session flag since we're explicitly changing auth and using default model
+    this.inFallbackMode = false;
+
+    // Logging the cli configuration here as the auth related configuration params would have been loaded by this point
+    logCliConfiguration(this, new StartSessionEvent(this, this.toolRegistry));
   }
 
   /**
@@ -774,38 +646,6 @@ export class Config {
     return this.sessionId;
   }
 
-  /**
-   * Releases resources owned by the config instance.
-   */
-  async shutdown(): Promise<void> {
-    this.skillManager?.stopWatching();
-  }
-
-  /**
-   * Starts a new session and resets session-scoped services.
-   */
-  startNewSession(
-    sessionId?: string,
-    sessionData?: ResumedSessionData,
-  ): string {
-    this.sessionId = sessionId ?? randomUUID();
-    this.sessionData = sessionData;
-    this.chatRecordingService = this.chatRecordingEnabled
-      ? new ChatRecordingService(this)
-      : undefined;
-    if (this.initialized) {
-      logStartSession(this, new StartSessionEvent(this));
-    }
-    return this.sessionId;
-  }
-
-  /**
-   * Returns the resumed session data if this session was resumed from a previous one.
-   */
-  getResumedSessionData(): ResumedSessionData | undefined {
-    return this.sessionData;
-  }
-
   shouldLoadMemoryFromIncludeDirectories(): boolean {
     return this.loadMemoryFromIncludeDirectories;
   }
@@ -814,125 +654,31 @@ export class Config {
     return this.contentGeneratorConfig;
   }
 
-  getContentGeneratorConfigSources(): ContentGeneratorConfigSources {
-    // If contentGeneratorConfigSources is empty (before initializeAuth),
-    // get sources from ModelsConfig
-    if (
-      Object.keys(this.contentGeneratorConfigSources).length === 0 &&
-      this._modelsConfig
-    ) {
-      return this._modelsConfig.getGenerationConfigSources();
-    }
-    return this.contentGeneratorConfigSources;
-  }
-
   getModel(): string {
-    return this.contentGeneratorConfig?.model || this._modelsConfig.getModel();
+    return this.contentGeneratorConfig?.model || DEFAULT_QWEN_MODEL;
   }
 
-  /**
-   * Set model programmatically (e.g., VLM auto-switch, fallback).
-   * Delegates to ModelsConfig.
-   */
   async setModel(
     newModel: string,
-    metadata?: { reason?: string; context?: string },
+    _metadata?: { reason?: string; context?: string },
   ): Promise<void> {
-    await this._modelsConfig.setModel(newModel, metadata);
-    // Also update contentGeneratorConfig for hot-update compatibility
     if (this.contentGeneratorConfig) {
       this.contentGeneratorConfig.model = newModel;
     }
+    // TODO: Log _metadata for telemetry if needed
+    // This _metadata can be used for tracking model switches (reason, context)
   }
 
-  /**
-   * Handle model change from ModelsConfig.
-   * This updates the content generator config with the new model settings.
-   */
-  private async handleModelChange(
-    authType: AuthType,
-    requiresRefresh: boolean,
-  ): Promise<void> {
-    if (!this.contentGeneratorConfig) {
-      return;
-    }
-
-    // Hot update path: only supported for qwen-oauth.
-    // For other auth types we always refresh to recreate the ContentGenerator.
-    //
-    // Rationale:
-    // - Non-qwen providers may need to re-validate credentials / baseUrl / envKey.
-    // - ModelsConfig.applyResolvedModelDefaults can clear or change credentials sources.
-    // - Refresh keeps runtime behavior consistent and centralized.
-    if (authType === AuthType.QWEN_OAUTH && !requiresRefresh) {
-      const { config, sources } = resolveContentGeneratorConfigWithSources(
-        this,
-        authType,
-        this._modelsConfig.getGenerationConfig(),
-        this._modelsConfig.getGenerationConfigSources(),
-        {
-          strictModelProvider:
-            this._modelsConfig.isStrictModelProviderSelection(),
-        },
-      );
-
-      // Hot-update fields (qwen-oauth models share the same auth + client).
-      this.contentGeneratorConfig.model = config.model;
-      this.contentGeneratorConfig.samplingParams = config.samplingParams;
-      this.contentGeneratorConfig.disableCacheControl =
-        config.disableCacheControl;
-
-      if ('model' in sources) {
-        this.contentGeneratorConfigSources['model'] = sources['model'];
-      }
-      if ('samplingParams' in sources) {
-        this.contentGeneratorConfigSources['samplingParams'] =
-          sources['samplingParams'];
-      }
-      if ('disableCacheControl' in sources) {
-        this.contentGeneratorConfigSources['disableCacheControl'] =
-          sources['disableCacheControl'];
-      }
-      return;
-    }
-
-    // Full refresh path
-    await this.refreshAuth(authType);
+  isInFallbackMode(): boolean {
+    return this.inFallbackMode;
   }
 
-  /**
-   * Get available models for the current authType.
-   * Delegates to ModelsConfig.
-   */
-  getAvailableModels(): AvailableModel[] {
-    return this._modelsConfig.getAvailableModels();
+  setFallbackMode(active: boolean): void {
+    this.inFallbackMode = active;
   }
 
-  /**
-   * Get available models for a specific authType.
-   * Delegates to ModelsConfig.
-   */
-  getAvailableModelsForAuthType(authType: AuthType): AvailableModel[] {
-    return this._modelsConfig.getAvailableModelsForAuthType(authType);
-  }
-
-  /**
-   * Switch authType+model via registry-backed selection.
-   * This triggers a refresh of the ContentGenerator when required (always on authType changes).
-   * For qwen-oauth model switches that are hot-update safe, this may update in place.
-   *
-   * @param authType - Target authentication type
-   * @param modelId - Target model ID
-   * @param options - Additional options like requireCachedCredentials
-   * @param metadata - Metadata for logging/tracking
-   */
-  async switchModel(
-    authType: AuthType,
-    modelId: string,
-    options?: { requireCachedCredentials?: boolean },
-    metadata?: { reason?: string; context?: string },
-  ): Promise<void> {
-    await this._modelsConfig.switchModel(authType, modelId, options, metadata);
+  setFallbackModelHandler(handler: FallbackModelHandler): void {
+    this.fallbackModelHandler = handler;
   }
 
   getMaxSessionTurns(): number {
@@ -941,6 +687,14 @@ export class Config {
 
   getSessionTokenLimit(): number {
     return this.sessionTokenLimit;
+  }
+
+  setQuotaErrorOccurred(value: boolean): void {
+    this.quotaErrorOccurred = value;
+  }
+
+  getQuotaErrorOccurred(): boolean {
+    return this.quotaErrorOccurred;
   }
 
   getEmbeddingModel(): string {
@@ -1020,32 +774,6 @@ export class Config {
 
   getMcpServers(): Record<string, MCPServerConfig> | undefined {
     return this.mcpServers;
-  }
-
-  addMcpServers(servers: Record<string, MCPServerConfig>): void {
-    if (this.initialized) {
-      throw new Error('Cannot modify mcpServers after initialization');
-    }
-    this.mcpServers = { ...this.mcpServers, ...servers };
-  }
-
-  getSessionSubagents(): SubagentConfig[] {
-    return this.sessionSubagents;
-  }
-
-  setSessionSubagents(subagents: SubagentConfig[]): void {
-    if (this.initialized) {
-      throw new Error('Cannot modify sessionSubagents after initialization');
-    }
-    this.sessionSubagents = subagents;
-  }
-
-  getSdkMode(): boolean {
-    return this.sdkMode;
-  }
-
-  setSdkMode(value: boolean): void {
-    this.sdkMode = value;
   }
 
   getUserMemory(): string {
@@ -1205,10 +933,6 @@ export class Config {
     return this.experimentalZedIntegration;
   }
 
-  getExperimentalSkills(): boolean {
-    return this.experimentalSkills;
-  }
-
   getListExtensions(): boolean {
     return this.listExtensions;
   }
@@ -1284,15 +1008,11 @@ export class Config {
   }
 
   getAuthType(): AuthType | undefined {
-    return this.contentGeneratorConfig?.authType;
+    return this.contentGeneratorConfig.authType;
   }
 
   getCliVersion(): string | undefined {
     return this.cliVersion;
-  }
-
-  getChannel(): string | undefined {
-    return this.channel;
   }
 
   /**
@@ -1408,29 +1128,6 @@ export class Config {
     return this.gitService;
   }
 
-  /**
-   * Returns the chat recording service.
-   */
-  getChatRecordingService(): ChatRecordingService | undefined {
-    if (!this.chatRecordingEnabled) {
-      return undefined;
-    }
-    if (!this.chatRecordingService) {
-      this.chatRecordingService = new ChatRecordingService(this);
-    }
-    return this.chatRecordingService;
-  }
-
-  /**
-   * Gets or creates a SessionService for managing chat sessions.
-   */
-  getSessionService(): SessionService {
-    if (!this.sessionService) {
-      this.sessionService = new SessionService(this.targetDir);
-    }
-    return this.sessionService;
-  }
-
   getFileExclusions(): FileExclusions {
     return this.fileExclusions;
   }
@@ -1439,18 +1136,8 @@ export class Config {
     return this.subagentManager;
   }
 
-  getSkillManager(): SkillManager {
-    return this.skillManager;
-  }
-
-  async createToolRegistry(
-    sendSdkMcpMessage?: SendSdkMcpMessage,
-  ): Promise<ToolRegistry> {
-    const registry = new ToolRegistry(
-      this,
-      this.eventEmitter,
-      sendSdkMcpMessage,
-    );
+  async createToolRegistry(): Promise<ToolRegistry> {
+    const registry = new ToolRegistry(this, this.eventEmitter);
 
     const coreToolsConfig = this.getCoreTools();
     const excludeToolsConfig = this.getExcludeTools();
@@ -1485,9 +1172,6 @@ export class Config {
     };
 
     registerCoreTool(TaskTool, this);
-    if (this.getExperimentalSkills()) {
-      registerCoreTool(SkillTool, this);
-    }
     registerCoreTool(LSTool, this);
     registerCoreTool(ReadFileTool, this);
 
@@ -1528,7 +1212,7 @@ export class Config {
     registerCoreTool(ShellTool, this);
     registerCoreTool(MemoryTool);
     registerCoreTool(TodoWriteTool, this);
-    !this.sdkMode && registerCoreTool(ExitPlanModeTool, this);
+    registerCoreTool(ExitPlanModeTool, this);
     registerCoreTool(WebFetchTool, this);
     // Conditionally register web search tool if web search provider is configured
     // buildWebSearchConfig ensures qwen-oauth users get dashscope provider, so
@@ -1538,7 +1222,6 @@ export class Config {
     }
 
     await registry.discoverAllTools();
-    console.debug('ToolRegistry created', registry.getAllToolNames());
     return registry;
   }
 }

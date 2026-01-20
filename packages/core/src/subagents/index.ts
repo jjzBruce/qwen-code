@@ -58,7 +58,6 @@ export type {
   SubAgentStartEvent,
   SubAgentRoundEvent,
   SubAgentStreamTextEvent,
-  SubAgentUsageEvent,
   SubAgentToolCallEvent,
   SubAgentToolResultEvent,
   SubAgentFinishEvent,

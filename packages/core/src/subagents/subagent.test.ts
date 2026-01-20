@@ -22,11 +22,10 @@ import {
   type Mock,
 } from 'vitest';
 import { Config, type ConfigParameters } from '../config/config.js';
-import { DEFAULT_QWEN_MODEL } from '../config/models.js';
+import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
 import {
   createContentGenerator,
   createContentGeneratorConfig,
-  resolveContentGeneratorConfigWithSources,
   AuthType,
 } from '../core/contentGenerator.js';
 import { GeminiChat } from '../core/geminiChat.js';
@@ -43,33 +42,7 @@ import type {
 import { SubagentTerminateMode } from './types.js';
 
 vi.mock('../core/geminiChat.js');
-vi.mock('../core/contentGenerator.js', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('../core/contentGenerator.js')>();
-  const { DEFAULT_QWEN_MODEL } = await import('../config/models.js');
-  return {
-    ...actual,
-    createContentGenerator: vi.fn().mockResolvedValue({
-      generateContent: vi.fn(),
-      generateContentStream: vi.fn(),
-      countTokens: vi.fn().mockResolvedValue({ totalTokens: 100 }),
-      embedContent: vi.fn(),
-      useSummarizedThinking: vi.fn().mockReturnValue(false),
-    }),
-    createContentGeneratorConfig: vi.fn().mockReturnValue({
-      model: DEFAULT_QWEN_MODEL,
-      authType: actual.AuthType.USE_GEMINI,
-    }),
-    resolveContentGeneratorConfigWithSources: vi.fn().mockReturnValue({
-      config: {
-        model: DEFAULT_QWEN_MODEL,
-        authType: actual.AuthType.USE_GEMINI,
-        apiKey: 'test-api-key',
-      },
-      sources: {},
-    }),
-  };
-});
+vi.mock('../core/contentGenerator.js');
 vi.mock('../utils/environmentContext.js', () => ({
   getEnvironmentContext: vi.fn().mockResolvedValue([{ text: 'Env Context' }]),
   getInitialChatHistory: vi.fn(async (_config, extraHistory) => [
@@ -92,12 +65,11 @@ async function createMockConfig(
   toolRegistryMocks = {},
 ): Promise<{ config: Config; toolRegistry: ToolRegistry }> {
   const configParams: ConfigParameters = {
-    model: DEFAULT_QWEN_MODEL,
+    sessionId: 'test-session',
+    model: DEFAULT_GEMINI_MODEL,
     targetDir: '.',
     debugMode: false,
     cwd: process.cwd(),
-    // Avoid writing any chat recording records from tests (e.g. via tool-call telemetry).
-    chatRecording: false,
   };
   const config = new Config(configParams);
   await config.initialize();
@@ -116,7 +88,7 @@ async function createMockConfig(
 
   // Mock getContentGeneratorConfig to return a valid config
   vi.spyOn(config, 'getContentGeneratorConfig').mockReturnValue({
-    model: DEFAULT_QWEN_MODEL,
+    model: DEFAULT_GEMINI_MODEL,
     authType: AuthType.USE_GEMINI,
   });
 
@@ -219,16 +191,8 @@ describe('subagent.ts', () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any);
       vi.mocked(createContentGeneratorConfig).mockReturnValue({
-        model: DEFAULT_QWEN_MODEL,
+        model: DEFAULT_GEMINI_MODEL,
         authType: undefined,
-      });
-      vi.mocked(resolveContentGeneratorConfigWithSources).mockReturnValue({
-        config: {
-          model: DEFAULT_QWEN_MODEL,
-          authType: AuthType.USE_GEMINI,
-          apiKey: 'test-api-key',
-        },
-        sources: {},
       });
 
       mockSendMessageStream = vi.fn();

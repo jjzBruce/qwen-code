@@ -26,6 +26,7 @@ import {
   GitService,
   UnauthorizedError,
   UserPromptEvent,
+  DEFAULT_GEMINI_FLASH_MODEL,
   logConversationFinishedEvent,
   ConversationFinishedEvent,
   ApprovalMode,
@@ -123,13 +124,9 @@ export const useGeminiStream = (
   const [pendingHistoryItem, pendingHistoryItemRef, setPendingHistoryItem] =
     useStateAndRef<HistoryItemWithoutId | null>(null);
   const processedMemoryToolsRef = useRef<Set<string>>(new Set());
-  const {
-    startNewPrompt,
-    getPromptCount,
-    stats: sessionStates,
-  } = useSessionStats();
+  const { startNewPrompt, getPromptCount } = useSessionStats();
   const storage = config.storage;
-  const logger = useLogger(storage, sessionStates.sessionId);
+  const logger = useLogger(storage);
   const gitService = useMemo(() => {
     if (!config.getProjectRoot()) {
       return;
@@ -496,92 +493,6 @@ export const useGeminiStream = (
     [addItem, pendingHistoryItemRef, setPendingHistoryItem],
   );
 
-  const mergeThought = useCallback(
-    (incoming: ThoughtSummary) => {
-      setThought((prev) => {
-        if (!prev) {
-          return incoming;
-        }
-        const subject = incoming.subject || prev.subject;
-        const description = `${prev.description ?? ''}${incoming.description ?? ''}`;
-        return { subject, description };
-      });
-    },
-    [setThought],
-  );
-
-  const handleThoughtEvent = useCallback(
-    (
-      eventValue: ThoughtSummary,
-      currentThoughtBuffer: string,
-      userMessageTimestamp: number,
-    ): string => {
-      if (turnCancelledRef.current) {
-        return '';
-      }
-
-      // Extract the description text from the thought summary
-      const thoughtText = eventValue.description ?? '';
-      if (!thoughtText) {
-        return currentThoughtBuffer;
-      }
-
-      let newThoughtBuffer = currentThoughtBuffer + thoughtText;
-
-      const pendingType = pendingHistoryItemRef.current?.type;
-      const isPendingThought =
-        pendingType === 'gemini_thought' ||
-        pendingType === 'gemini_thought_content';
-
-      // If we're not already showing a thought, start a new one
-      if (!isPendingThought) {
-        // If there's a pending non-thought item, finalize it first
-        if (pendingHistoryItemRef.current) {
-          addItem(pendingHistoryItemRef.current, userMessageTimestamp);
-        }
-        setPendingHistoryItem({ type: 'gemini_thought', text: '' });
-      }
-
-      // Split large thought messages for better rendering performance (same rationale
-      // as regular content streaming). This helps avoid terminal flicker caused by
-      // constantly re-rendering an ever-growing "pending" block.
-      const splitPoint = findLastSafeSplitPoint(newThoughtBuffer);
-      const nextPendingType: 'gemini_thought' | 'gemini_thought_content' =
-        isPendingThought && pendingType === 'gemini_thought_content'
-          ? 'gemini_thought_content'
-          : 'gemini_thought';
-
-      if (splitPoint === newThoughtBuffer.length) {
-        // Update the existing thought message with accumulated content
-        setPendingHistoryItem({
-          type: nextPendingType,
-          text: newThoughtBuffer,
-        });
-      } else {
-        const beforeText = newThoughtBuffer.substring(0, splitPoint);
-        const afterText = newThoughtBuffer.substring(splitPoint);
-        addItem(
-          {
-            type: nextPendingType,
-            text: beforeText,
-          },
-          userMessageTimestamp,
-        );
-        setPendingHistoryItem({
-          type: 'gemini_thought_content',
-          text: afterText,
-        });
-        newThoughtBuffer = afterText;
-      }
-
-      // Also update the thought state for the loading indicator
-      mergeThought(eventValue);
-
-      return newThoughtBuffer;
-    },
-    [addItem, pendingHistoryItemRef, setPendingHistoryItem, mergeThought],
-  );
-
   const handleUserCancelledEvent = useCallback(
     (userMessageTimestamp: number) => {
       if (turnCancelledRef.current) {
@@ -630,6 +541,9 @@ export const useGeminiStream = (
           text: parseAndFormatApiError(
             eventValue.error,
             config.getContentGeneratorConfig()?.authType,
+            undefined,
+            config.getModel(),
+            DEFAULT_GEMINI_FLASH_MODEL,
           ),
         },
         userMessageTimestamp,
@@ -681,9 +595,6 @@ export const useGeminiStream = (
           'Response stopped due to image safety violations.',
         [FinishReason.UNEXPECTED_TOOL_CALL]:
           'Response stopped due to unexpected tool call.',
-        [FinishReason.IMAGE_PROHIBITED_CONTENT]:
-          'Response stopped due to image prohibited content.',
-        [FinishReason.NO_IMAGE]: 'Response stopped due to no image.',
       };
 
       const message = finishReasonMessages[finishReason];
@@ -795,22 +706,11 @@ export const useGeminiStream = (
       signal: AbortSignal,
     ): Promise<StreamProcessingStatus> => {
       let geminiMessageBuffer = '';
-      let thoughtBuffer = '';
       const toolCallRequests: ToolCallRequestInfo[] = [];
       for await (const event of stream) {
         switch (event.type) {
           case ServerGeminiEventType.Thought:
-            // If the thought has a subject, it's a discrete status update rather than
-            // a streamed textual thought, so we update the thought state directly.
-            if (event.value.subject) {
-              setThought(event.value);
-            } else {
-              thoughtBuffer = handleThoughtEvent(
-                event.value,
-                thoughtBuffer,
-                userMessageTimestamp,
-              );
-            }
+            setThought(event.value);
             break;
           case ServerGeminiEventType.Content:
             geminiMessageBuffer = handleContentEvent(
@@ -872,7 +772,6 @@ export const useGeminiStream = (
     },
     [
       handleContentEvent,
-      handleThoughtEvent,
       handleUserCancelledEvent,
       handleErrorEvent,
       scheduleToolCalls,
@@ -881,7 +780,6 @@ export const useGeminiStream = (
       handleMaxSessionTurnsEvent,
       handleSessionTokenLimitExceededEvent,
       handleCitationEvent,
-      setThought,
     ],
   );
 
@@ -912,7 +810,7 @@ export const useGeminiStream = (
       // Reset quota error flag when starting a new query (not a continuation)
       if (!options?.isContinuation) {
         setModelSwitchedFromQuotaError(false);
-        // No quota-error / fallback routing mechanism currently; keep state minimal.
+        config.setQuotaErrorOccurred(false);
       }
 
       abortControllerRef.current = new AbortController();
@@ -951,24 +849,21 @@ export const useGeminiStream = (
         const finalQueryToSend = queryToSend;
 
         if (!options?.isContinuation) {
-          // trigger new prompt event for session stats in CLI
-          startNewPrompt();
-
-          // log user prompt event for telemetry, only text prompts for now
           if (typeof queryToSend === 'string') {
+            // logging the text prompts only for now
+            const promptText = queryToSend;
             logUserPrompt(
               config,
               new UserPromptEvent(
-                queryToSend.length,
+                promptText.length,
                 prompt_id,
                 config.getContentGeneratorConfig()?.authType,
-                queryToSend,
+                promptText,
               ),
             );
           }
-
-          // Reset thought when starting a new prompt
-          setThought(null);
+          startNewPrompt();
+          setThought(null); // Reset thought when starting a new prompt
         }
 
         setIsResponding(true);
@@ -979,7 +874,6 @@ export const useGeminiStream = (
             finalQueryToSend,
             abortSignal,
             prompt_id!,
-            options,
           );
           const processingStatus = await processGeminiStreamEvents(
             stream,
@@ -1024,6 +918,9 @@ export const useGeminiStream = (
                 text: parseAndFormatApiError(
                   getErrorMessage(error) || 'Unknown error',
                   config.getContentGeneratorConfig()?.authType,
+                  undefined,
+                  config.getModel(),
+                  DEFAULT_GEMINI_FLASH_MODEL,
                 ),
               },
               userMessageTimestamp,

@@ -205,7 +205,9 @@ describe('ExitPlanModeTool', () => {
       };
 
       const invocation = tool.build(params);
-      expect(invocation.getDescription()).toBe('Plan:');
+      expect(invocation.getDescription()).toBe(
+        'Present implementation plan for user approval',
+      );
     });
 
     it('should return empty tool locations', () => {

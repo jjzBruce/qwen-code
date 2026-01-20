@@ -32,13 +32,14 @@ import {
   type Config,
   type IdeInfo,
   type IdeContext,
+  type UserTierId,
+  DEFAULT_GEMINI_FLASH_MODEL,
   IdeClient,
   ideContextStore,
   getErrorMessage,
   getAllGeminiMdFilenames,
   ShellExecutionService,
 } from '@qwen-code/qwen-code-core';
-import { buildResumedHistoryItems } from './utils/resumeHistoryUtils.js';
 import { validateAuthMethod } from '../config/auth.js';
 import { loadHierarchicalGeminiMemory } from '../config/config.js';
 import process from 'node:process';
@@ -46,11 +47,11 @@ import { useHistory } from './hooks/useHistoryManager.js';
 import { useMemoryMonitor } from './hooks/useMemoryMonitor.js';
 import { useThemeCommand } from './hooks/useThemeCommand.js';
 import { useAuthCommand } from './auth/useAuth.js';
+import { useQuotaAndFallback } from './hooks/useQuotaAndFallback.js';
 import { useEditorSettings } from './hooks/useEditorSettings.js';
 import { useSettingsCommand } from './hooks/useSettingsCommand.js';
 import { useModelCommand } from './hooks/useModelCommand.js';
 import { useApprovalModeCommand } from './hooks/useApprovalModeCommand.js';
-import { useResumeCommand } from './hooks/useResumeCommand.js';
 import { useSlashCommandProcessor } from './hooks/slashCommandProcessor.js';
 import { useVimMode } from './contexts/VimModeContext.js';
 import { useConsoleMessages } from './hooks/useConsoleMessages.js';
@@ -87,6 +88,7 @@ import { useSessionStats } from './contexts/SessionContext.js';
 import { useGitBranchName } from './hooks/useGitBranchName.js';
 import { useExtensionUpdates } from './hooks/useExtensionUpdates.js';
 import { ShellFocusContext } from './contexts/ShellFocusContext.js';
+import { useQuitConfirmation } from './hooks/useQuitConfirmation.js';
 import { t } from '../i18n/index.js';
 import { useWelcomeBack } from './hooks/useWelcomeBack.js';
 import { useDialogClose } from './hooks/useDialogClose.js';
@@ -134,6 +136,7 @@ export const AppContainer = (props: AppContainerProps) => {
   const { settings, config, initializationResult } = props;
   const historyManager = useHistory();
   useMemoryMonitor(historyManager);
+  const [corgiMode, setCorgiMode] = useState(false);
   const [debugMessage, setDebugMessage] = useState<string>('');
   const [quittingMessages, setQuittingMessages] = useState<
     HistoryItem[] | null
@@ -179,13 +182,21 @@ export const AppContainer = (props: AppContainerProps) => {
     [],
   );
 
-  // Helper to determine the current model (polled, since Config has no model-change event).
-  const getCurrentModel = useCallback(() => config.getModel(), [config]);
+  // Helper to determine the effective model, considering the fallback state.
+  const getEffectiveModel = useCallback(() => {
+    if (config.isInFallbackMode()) {
+      return DEFAULT_GEMINI_FLASH_MODEL;
+    }
+    return config.getModel();
+  }, [config]);
 
-  const [currentModel, setCurrentModel] = useState(getCurrentModel());
+  const [currentModel, setCurrentModel] = useState(getEffectiveModel());
+
+  const [userTier] = useState<UserTierId | undefined>(undefined);
 
   const [isConfigInitialized, setConfigInitialized] = useState(false);
 
+  const logger = useLogger(config.storage);
   const [userMessages, setUserMessages] = useState<string[]>([]);
 
   // Terminal and layout hooks
@@ -194,8 +205,7 @@ export const AppContainer = (props: AppContainerProps) => {
   const { stdout } = useStdout();
 
   // Additional hooks moved from App.tsx
-  const { stats: sessionStats, startNewSession } = useSessionStats();
-  const logger = useLogger(config.storage, sessionStats.sessionId);
+  const { stats: sessionStats } = useSessionStats();
   const branchName = useGitBranchName(config.getTargetDir());
 
   // Layout measurements
@@ -206,28 +216,17 @@ export const AppContainer = (props: AppContainerProps) => {
   const lastTitleRef = useRef<string | null>(null);
   const staticExtraHeight = 3;
 
-  // Initialize config (runs once on mount)
   useEffect(() => {
     (async () => {
       // Note: the program will not work if this fails so let errors be
       // handled by the global catch.
       await config.initialize();
       setConfigInitialized(true);
-
-      const resumedSessionData = config.getResumedSessionData();
-      if (resumedSessionData) {
-        const historyItems = buildResumedHistoryItems(
-          resumedSessionData,
-          config,
-        );
-        historyManager.loadHistory(historyItems);
-      }
     })();
     registerCleanup(async () => {
       const ideClient = await IdeClient.getInstance();
       await ideClient.disconnect();
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
 
   useEffect(
@@ -235,12 +234,12 @@ export const AppContainer = (props: AppContainerProps) => {
     [historyManager.addItem],
   );
 
-  // Watch for model changes (e.g., user switches model via /model)
+  // Watch for model changes (e.g., from Flash fallback)
   useEffect(() => {
     const checkModelChange = () => {
-      const model = getCurrentModel();
-      if (model !== currentModel) {
-        setCurrentModel(model);
+      const effectiveModel = getEffectiveModel();
+      if (effectiveModel !== currentModel) {
+        setCurrentModel(effectiveModel);
       }
     };
 
@@ -248,7 +247,7 @@ export const AppContainer = (props: AppContainerProps) => {
     const interval = setInterval(checkModelChange, 1000); // Check every second
 
     return () => clearInterval(interval);
-  }, [config, currentModel, getCurrentModel]);
+  }, [config, currentModel, getEffectiveModel]);
 
   const {
     consoleMessages,
@@ -357,6 +356,14 @@ export const AppContainer = (props: AppContainerProps) => {
     cancelAuthentication,
   } = useAuthCommand(settings, config, historyManager.addItem);
 
+  const { proQuotaRequest, handleProQuotaChoice } = useQuotaAndFallback({
+    config,
+    historyManager,
+    userTier,
+    setAuthState,
+    setModelSwitchedFromQuotaError,
+  });
+
   useInitializationAuthError(initializationResult.authError, onAuthError);
 
   // Sync user tier from config when authentication changes
@@ -370,36 +377,37 @@ export const AppContainer = (props: AppContainerProps) => {
   // Check for enforced auth type mismatch
   useEffect(() => {
     // Check for initialization error first
-    const currentAuthType = config.modelsConfig.getCurrentAuthType();
 
     if (
       settings.merged.security?.auth?.enforcedType &&
-      currentAuthType &&
-      settings.merged.security?.auth.enforcedType !== currentAuthType
+      settings.merged.security?.auth.selectedType &&
+      settings.merged.security?.auth.enforcedType !==
+        settings.merged.security?.auth.selectedType
     ) {
       onAuthError(
         t(
           'Authentication is enforced to be {{enforcedType}}, but you are currently using {{currentType}}.',
           {
-            enforcedType: String(settings.merged.security?.auth.enforcedType),
-            currentType: String(currentAuthType),
+            enforcedType: settings.merged.security?.auth.enforcedType,
+            currentType: settings.merged.security?.auth.selectedType,
           },
         ),
       );
-    } else if (!settings.merged.security?.auth?.useExternal) {
-      // If no authType is selected yet, allow the auth UI flow to prompt the user.
-      // Only validate credentials once a concrete authType exists.
-      if (currentAuthType) {
-        const error = validateAuthMethod(currentAuthType, config);
-        if (error) {
-          onAuthError(error);
-        }
+    } else if (
+      settings.merged.security?.auth?.selectedType &&
+      !settings.merged.security?.auth?.useExternal
+    ) {
+      const error = validateAuthMethod(
+        settings.merged.security.auth.selectedType,
+      );
+      if (error) {
+        onAuthError(error);
       }
     }
   }, [
+    settings.merged.security?.auth?.selectedType,
     settings.merged.security?.auth?.enforcedType,
     settings.merged.security?.auth?.useExternal,
-    config,
     onAuthError,
   ]);
 
@@ -418,18 +426,6 @@ export const AppContainer = (props: AppContainerProps) => {
     useModelCommand();
 
   const {
-    isResumeDialogOpen,
-    openResumeDialog,
-    closeResumeDialog,
-    handleResume,
-  } = useResumeCommand({
-    config,
-    historyManager,
-    startNewSession,
-    remount: refreshStatic,
-  });
-
-  const {
     showWorkspaceMigrationDialog,
     workspaceExtensions,
     onWorkspaceMigrationDialogOpen,
@@ -437,6 +433,8 @@ export const AppContainer = (props: AppContainerProps) => {
   } = useWorkspaceMigration(settings);
 
   const { toggleVimEnabled } = useVimMode();
+
+  const { showQuitConfirmation } = useQuitConfirmation();
 
   const {
     isSubagentCreateDialogOpen,
@@ -478,11 +476,12 @@ export const AppContainer = (props: AppContainerProps) => {
         }, 100);
       },
       setDebugMessage,
+      toggleCorgiMode: () => setCorgiMode((prev) => !prev),
       dispatchExtensionStateUpdate,
       addConfirmUpdateExtensionRequest,
       openSubagentCreateDialog,
       openAgentsManagerDialog,
-      openResumeDialog,
+      _showQuitConfirmation: showQuitConfirmation,
     }),
     [
       openAuthDialog,
@@ -491,13 +490,14 @@ export const AppContainer = (props: AppContainerProps) => {
       openSettingsDialog,
       openModelDialog,
       setDebugMessage,
+      setCorgiMode,
       dispatchExtensionStateUpdate,
       openPermissionsDialog,
       openApprovalModeDialog,
       addConfirmUpdateExtensionRequest,
+      showQuitConfirmation,
       openSubagentCreateDialog,
       openAgentsManagerDialog,
-      openResumeDialog,
     ],
   );
 
@@ -508,6 +508,7 @@ export const AppContainer = (props: AppContainerProps) => {
     commandContext,
     shellConfirmationRequest,
     confirmationRequest,
+    quitConfirmationRequest,
   } = useSlashCommandProcessor(
     config,
     settings,
@@ -521,7 +522,6 @@ export const AppContainer = (props: AppContainerProps) => {
     slashCommandActions,
     extensionsUpdateStateInternal,
     isConfigInitialized,
-    logger,
   );
 
   // Vision switch handlers
@@ -733,7 +733,8 @@ export const AppContainer = (props: AppContainerProps) => {
     !initError &&
     !isProcessing &&
     (streamingState === StreamingState.Idle ||
-      streamingState === StreamingState.Responding);
+      streamingState === StreamingState.Responding) &&
+    !proQuotaRequest;
 
   const [controlsHeight, setControlsHeight] = useState(0);
 
@@ -918,12 +919,7 @@ export const AppContainer = (props: AppContainerProps) => {
   const handleIdePromptComplete = useCallback(
     (result: IdeIntegrationNudgeResult) => {
       if (result.userSelection === 'yes') {
-        // Check whether the extension has been pre-installed
-        if (result.isExtensionPreInstalled) {
-          handleSlashCommand('/ide enable');
-        } else {
-          handleSlashCommand('/ide install');
-        }
+        handleSlashCommand('/ide install');
         settings.setValue(SettingScope.User, 'ide.hasSeenNudge', true);
       } else if (result.userSelection === 'dismiss') {
         settings.setValue(SettingScope.User, 'ide.hasSeenNudge', true);
@@ -942,7 +938,6 @@ export const AppContainer = (props: AppContainerProps) => {
     isFocused,
     streamingState,
     elapsedTime,
-    settings,
   });
 
   // Dialog close functionality
@@ -961,6 +956,7 @@ export const AppContainer = (props: AppContainerProps) => {
     isFolderTrustDialogOpen,
     showWelcomeBackDialog,
     handleWelcomeBackClose,
+    quitConfirmationRequest,
   });
 
   const handleExit = useCallback(
@@ -974,18 +970,25 @@ export const AppContainer = (props: AppContainerProps) => {
         if (timerRef.current) {
           clearTimeout(timerRef.current);
         }
-        // Exit directly
+        // Exit directly without showing confirmation dialog
         handleSlashCommand('/quit');
         return;
       }
 
       // First press: Prioritize cleanup tasks
 
+      // Special case: If quit-confirm dialog is open, Ctrl+C means "quit immediately"
+      if (quitConfirmationRequest) {
+        handleSlashCommand('/quit');
+        return;
+      }
+
       // 1. Close other dialogs (highest priority)
       /**
        * For AuthDialog it is required to complete the authentication process,
        * otherwise user cannot proceed to the next step.
-       * So a quit on AuthDialog should go with normal two press quit.
+       * So a quit on AuthDialog should go with normal two press quit
+       * and without quit-confirm dialog.
        */
       if (isAuthDialogOpen) {
         setPressedOnce(true);
@@ -1006,17 +1009,14 @@ export const AppContainer = (props: AppContainerProps) => {
         return; // Request cancelled, end processing
       }
 
-      // 4. Clear input buffer (if has content)
+      // 3. Clear input buffer (if has content)
       if (buffer.text.length > 0) {
         buffer.setText('');
         return; // Input cleared, end processing
       }
 
-      // All cleanup tasks completed, set flag for double-press to quit
-      setPressedOnce(true);
-      timerRef.current = setTimeout(() => {
-        setPressedOnce(false);
-      }, CTRL_EXIT_PROMPT_DURATION_MS);
+      // All cleanup tasks completed, show quit confirmation dialog
+      handleSlashCommand('/quit-confirm');
     },
     [
       isAuthDialogOpen,
@@ -1024,6 +1024,7 @@ export const AppContainer = (props: AppContainerProps) => {
       closeAnyOpenDialog,
       streamingState,
       cancelOngoingRequest,
+      quitConfirmationRequest,
       buffer,
     ],
   );
@@ -1040,8 +1041,8 @@ export const AppContainer = (props: AppContainerProps) => {
           return;
         }
 
-        // On first press: set flag, start timer, and call handleExit for cleanup
-        // On second press (within timeout): handleExit sees flag and does fast quit
+        // On first press: set flag, start timer, and call handleExit for cleanup/quit-confirm
+        // On second press (within 500ms): handleExit sees flag and does fast quit
         if (!ctrlCPressedOnce) {
           setCtrlCPressedOnce(true);
           ctrlCTimerRef.current = setTimeout(() => {
@@ -1182,6 +1183,7 @@ export const AppContainer = (props: AppContainerProps) => {
     !!confirmationRequest ||
     confirmUpdateExtensionRequests.length > 0 ||
     !!loopDetectionConfirmationRequest ||
+    !!quitConfirmationRequest ||
     isThemeDialogOpen ||
     isSettingsDialogOpen ||
     isModelDialogOpen ||
@@ -1191,10 +1193,10 @@ export const AppContainer = (props: AppContainerProps) => {
     isAuthenticating ||
     isEditorDialogOpen ||
     showIdeRestartPrompt ||
+    !!proQuotaRequest ||
     isSubagentCreateDialogOpen ||
     isAgentsManagerDialogOpen ||
-    isApprovalModeDialogOpen ||
-    isResumeDialogOpen;
+    isApprovalModeDialogOpen;
 
   const pendingHistoryItems = useMemo(
     () => [...pendingSlashCommandHistoryItems, ...pendingGeminiHistoryItems],
@@ -1216,13 +1218,13 @@ export const AppContainer = (props: AppContainerProps) => {
       qwenAuthState,
       editorError,
       isEditorDialogOpen,
+      corgiMode,
       debugMessage,
       quittingMessages,
       isSettingsDialogOpen,
       isModelDialogOpen,
       isPermissionsDialogOpen,
       isApprovalModeDialogOpen,
-      isResumeDialogOpen,
       slashCommands,
       pendingSlashCommandHistoryItems,
       commandContext,
@@ -1230,6 +1232,7 @@ export const AppContainer = (props: AppContainerProps) => {
       confirmationRequest,
       confirmUpdateExtensionRequests,
       loopDetectionConfirmationRequest,
+      quitConfirmationRequest,
       geminiMdFileCount,
       streamingState,
       initError,
@@ -1261,6 +1264,8 @@ export const AppContainer = (props: AppContainerProps) => {
       showWorkspaceMigrationDialog,
       workspaceExtensions,
       currentModel,
+      userTier,
+      proQuotaRequest,
       contextFileNames,
       errorCount,
       availableTerminalHeight,
@@ -1305,13 +1310,13 @@ export const AppContainer = (props: AppContainerProps) => {
       qwenAuthState,
       editorError,
       isEditorDialogOpen,
+      corgiMode,
       debugMessage,
       quittingMessages,
       isSettingsDialogOpen,
       isModelDialogOpen,
       isPermissionsDialogOpen,
       isApprovalModeDialogOpen,
-      isResumeDialogOpen,
       slashCommands,
       pendingSlashCommandHistoryItems,
       commandContext,
@@ -1319,6 +1324,7 @@ export const AppContainer = (props: AppContainerProps) => {
       confirmationRequest,
       confirmUpdateExtensionRequests,
       loopDetectionConfirmationRequest,
+      quitConfirmationRequest,
       geminiMdFileCount,
       streamingState,
       initError,
@@ -1349,6 +1355,8 @@ export const AppContainer = (props: AppContainerProps) => {
       showAutoAcceptIndicator,
       showWorkspaceMigrationDialog,
       workspaceExtensions,
+      userTier,
+      proQuotaRequest,
       contextFileNames,
       errorCount,
       availableTerminalHeight,
@@ -1410,6 +1418,7 @@ export const AppContainer = (props: AppContainerProps) => {
       handleClearScreen,
       onWorkspaceMigrationDialogOpen,
       onWorkspaceMigrationDialogClose,
+      handleProQuotaChoice,
       // Vision switch dialog
       handleVisionSwitchSelect,
       // Welcome back dialog
@@ -1418,10 +1427,6 @@ export const AppContainer = (props: AppContainerProps) => {
       // Subagent dialogs
       closeSubagentCreateDialog,
       closeAgentsManagerDialog,
-      // Resume session dialog
-      openResumeDialog,
-      closeResumeDialog,
-      handleResume,
     }),
     [
       handleThemeSelect,
@@ -1447,16 +1452,13 @@ export const AppContainer = (props: AppContainerProps) => {
       handleClearScreen,
       onWorkspaceMigrationDialogOpen,
       onWorkspaceMigrationDialogClose,
+      handleProQuotaChoice,
       handleVisionSwitchSelect,
       handleWelcomeBackSelection,
       handleWelcomeBackClose,
       // Subagent dialogs
       closeSubagentCreateDialog,
       closeAgentsManagerDialog,
-      // Resume session dialog
-      openResumeDialog,
-      closeResumeDialog,
-      handleResume,
     ],
   );
 

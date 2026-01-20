@@ -8,12 +8,13 @@ import type React from 'react';
 import { useState } from 'react';
 import { AuthType } from '@qwen-code/qwen-code-core';
 import { Box, Text } from 'ink';
+import { SettingScope } from '../../config/settings.js';
 import { Colors } from '../colors.js';
 import { useKeypress } from '../hooks/useKeypress.js';
 import { RadioButtonSelect } from '../components/shared/RadioButtonSelect.js';
 import { useUIState } from '../contexts/UIStateContext.js';
 import { useUIActions } from '../contexts/UIActionsContext.js';
-import { useConfig } from '../contexts/ConfigContext.js';
+import { useSettings } from '../contexts/SettingsContext.js';
 import { t } from '../../i18n/index.js';
 
 function parseDefaultAuthType(
@@ -31,7 +32,7 @@ function parseDefaultAuthType(
 export function AuthDialog(): React.JSX.Element {
   const { pendingAuthType, authError } = useUIState();
   const { handleAuthSelect: onAuthSelect } = useUIActions();
-  const config = useConfig();
+  const settings = useSettings();
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -57,10 +58,9 @@ export function AuthDialog(): React.JSX.Element {
         return item.value === pendingAuthType;
       }
 
-      // Priority 2: config.getAuthType() - the source of truth
-      const currentAuthType = config.getAuthType();
-      if (currentAuthType) {
-        return item.value === currentAuthType;
+      // Priority 2: settings.merged.security?.auth?.selectedType
+      if (settings.merged.security?.auth?.selectedType) {
+        return item.value === settings.merged.security?.auth?.selectedType;
       }
 
       // Priority 3: QWEN_DEFAULT_AUTH_TYPE env var
@@ -76,7 +76,7 @@ export function AuthDialog(): React.JSX.Element {
     }),
   );
 
-  const hasApiKey = Boolean(config.getContentGeneratorConfig()?.apiKey);
+  const hasApiKey = Boolean(settings.merged.security?.auth?.apiKey);
   const currentSelectedAuthType =
     selectedIndex !== null
       ? items[selectedIndex]?.value
@@ -84,7 +84,7 @@ export function AuthDialog(): React.JSX.Element {
 
   const handleAuthSelect = async (authMethod: AuthType) => {
     setErrorMessage(null);
-    await onAuthSelect(authMethod);
+    await onAuthSelect(authMethod, SettingScope.User);
   };
 
   const handleHighlight = (authMethod: AuthType) => {
@@ -100,7 +100,7 @@ export function AuthDialog(): React.JSX.Element {
         if (errorMessage) {
           return;
         }
-        if (config.getAuthType() === undefined) {
+        if (settings.merged.security?.auth?.selectedType === undefined) {
           // Prevent exiting if no auth method is set
           setErrorMessage(
             t(
@@ -109,7 +109,7 @@ export function AuthDialog(): React.JSX.Element {
           );
           return;
         }
-        onAuthSelect(undefined);
+        onAuthSelect(undefined, SettingScope.User);
       }
     },
     { isActive: true },

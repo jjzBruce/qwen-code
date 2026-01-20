@@ -10,7 +10,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
@@ -44,14 +44,10 @@ export function getJson(url) {
     `qwen-code-releases-${Date.now()}.json`,
   );
   try {
-    const result = spawnSync(
-      'curl',
-      ['-sL', '-H', 'User-Agent: qwen-code-dev-script', '-o', tmpFile, url],
-      { stdio: 'pipe', encoding: 'utf-8' },
+    execSync(
+      `curl -sL -H "User-Agent: qwen-code-dev-script" -o "${tmpFile}" "${url}"`,
+      { stdio: 'pipe' },
     );
-    if (result.status !== 0) {
-      throw new Error(result.stderr);
-    }
     const content = fs.readFileSync(tmpFile, 'utf-8');
     return JSON.parse(content);
   } catch (e) {
@@ -66,13 +62,9 @@ export function getJson(url) {
 
 export function downloadFile(url, dest) {
   try {
-    const result = spawnSync('curl', ['-fL', '-sS', '-o', dest, url], {
+    execSync(`curl -fL -sS -o "${dest}" "${url}"`, {
       stdio: 'pipe',
-      encoding: 'utf-8',
     });
-    if (result.status !== 0) {
-      throw new Error(result.stderr);
-    }
     return dest;
   } catch (e) {
     console.error(`Failed to download file from ${url}`);
@@ -260,20 +252,10 @@ export async function ensureBinary(
 
     const actualExt = asset.name.endsWith('.zip') ? 'zip' : 'tar.gz';
 
-    let result;
     if (actualExt === 'zip') {
-      result = spawnSync('unzip', ['-o', archivePath, '-d', tmpDir], {
-        stdio: 'pipe',
-        encoding: 'utf-8',
-      });
+      execSync(`unzip -o "${archivePath}" -d "${tmpDir}"`, { stdio: 'pipe' });
     } else {
-      result = spawnSync('tar', ['-xzf', archivePath, '-C', tmpDir], {
-        stdio: 'pipe',
-        encoding: 'utf-8',
-      });
-    }
-    if (result.status !== 0) {
-      throw new Error(result.stderr);
+      execSync(`tar -xzf "${archivePath}" -C "${tmpDir}"`, { stdio: 'pipe' });
     }
 
     const nameToFind = binaryNameInArchive || executableName;

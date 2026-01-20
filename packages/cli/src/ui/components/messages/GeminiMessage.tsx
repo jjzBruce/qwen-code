@@ -7,7 +7,7 @@
 import type React from 'react';
 import { Text, Box } from 'ink';
 import { MarkdownDisplay } from '../../utils/MarkdownDisplay.js';
-import { theme } from '../../semantic-colors.js';
+import { Colors } from '../../colors.js';
 import { SCREEN_READER_MODEL_PREFIX } from '../../textConstants.js';
 
 interface GeminiMessageProps {
@@ -29,7 +29,10 @@ export const GeminiMessage: React.FC<GeminiMessageProps> = ({
   return (
     <Box flexDirection="row">
       <Box width={prefixWidth}>
-        <Text color={theme.text.accent} aria-label={SCREEN_READER_MODEL_PREFIX}>
+        <Text
+          color={Colors.AccentPurple}
+          aria-label={SCREEN_READER_MODEL_PREFIX}
+        >
           {prefix}
         </Text>
       </Box>

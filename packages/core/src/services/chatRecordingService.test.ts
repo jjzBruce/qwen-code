@@ -26,14 +26,7 @@ import {
 
 vi.mock('node:fs');
 vi.mock('node:path');
-vi.mock('node:crypto', () => ({
-  randomUUID: vi.fn(),
-  createHash: vi.fn(() => ({
-    update: vi.fn(() => ({
-      digest: vi.fn(() => 'mocked-hash'),
-    })),
-  })),
-}));
+vi.mock('node:crypto');
 vi.mock('../utils/paths.js');
 
 describe('ChatRecordingService', () => {
@@ -54,13 +47,6 @@ describe('ChatRecordingService', () => {
       },
       getModel: vi.fn().mockReturnValue('gemini-pro'),
       getDebugMode: vi.fn().mockReturnValue(false),
-      getToolRegistry: vi.fn().mockReturnValue({
-        getTool: vi.fn().mockReturnValue({
-          displayName: 'Test Tool',
-          description: 'A test tool',
-          isOutputMarkdown: false,
-        }),
-      }),
     } as unknown as Config;
 
     vi.mocked(getProjectHash).mockReturnValue('test-project-hash');
@@ -134,11 +120,7 @@ describe('ChatRecordingService', () => {
       const writeFileSyncSpy = vi
         .spyOn(fs, 'writeFileSync')
         .mockImplementation(() => undefined);
-      chatRecordingService.recordMessage({
-        type: 'user',
-        content: 'Hello',
-        model: 'gemini-pro',
-      });
+      chatRecordingService.recordMessage({ type: 'user', content: 'Hello' });
       expect(mkdirSyncSpy).toHaveBeenCalled();
       expect(writeFileSyncSpy).toHaveBeenCalled();
       const conversation = JSON.parse(
@@ -149,7 +131,7 @@ describe('ChatRecordingService', () => {
       expect(conversation.messages[0].type).toBe('user');
     });
 
-    it('should create separate messages when recording multiple messages', () => {
+    it('should append to the last message if append is true and types match', () => {
       const writeFileSyncSpy = vi
         .spyOn(fs, 'writeFileSync')
         .mockImplementation(() => undefined);
@@ -171,8 +153,8 @@ describe('ChatRecordingService', () => {
 
       chatRecordingService.recordMessage({
         type: 'user',
-        content: 'World',
-        model: 'gemini-pro',
+        content: ' World',
+        append: true,
       });
 
       expect(mkdirSyncSpy).toHaveBeenCalled();
@@ -180,9 +162,8 @@ describe('ChatRecordingService', () => {
       const conversation = JSON.parse(
         writeFileSyncSpy.mock.calls[0][1] as string,
       ) as ConversationRecord;
-      expect(conversation.messages).toHaveLength(2);
-      expect(conversation.messages[0].content).toBe('Hello');
-      expect(conversation.messages[1].content).toBe('World');
+      expect(conversation.messages).toHaveLength(1);
+      expect(conversation.messages[0].content).toBe('Hello World');
     });
   });
 
@@ -219,7 +200,7 @@ describe('ChatRecordingService', () => {
         messages: [
           {
             id: '1',
-            type: 'qwen',
+            type: 'gemini',
             content: 'Response',
             timestamp: new Date().toISOString(),
           },
@@ -230,10 +211,10 @@ describe('ChatRecordingService', () => {
       );
 
       chatRecordingService.recordMessageTokens({
-        promptTokenCount: 1,
-        candidatesTokenCount: 2,
-        totalTokenCount: 3,
-        cachedContentTokenCount: 0,
+        input: 1,
+        output: 2,
+        total: 3,
+        cached: 0,
       });
 
       expect(mkdirSyncSpy).toHaveBeenCalled();
@@ -243,14 +224,7 @@ describe('ChatRecordingService', () => {
       ) as ConversationRecord;
       expect(conversation.messages[0]).toEqual({
         ...initialConversation.messages[0],
-        tokens: {
-          input: 1,
-          output: 2,
-          total: 3,
-          cached: 0,
-          thoughts: 0,
-          tool: 0,
-        },
+        tokens: { input: 1, output: 2, total: 3, cached: 0 },
       });
     });
 
@@ -261,7 +235,7 @@ describe('ChatRecordingService', () => {
         messages: [
           {
             id: '1',
-            type: 'qwen',
+            type: 'gemini',
             content: 'Response',
             timestamp: new Date().toISOString(),
             tokens: { input: 1, output: 1, total: 2, cached: 0 },
@@ -273,10 +247,10 @@ describe('ChatRecordingService', () => {
       );
 
       chatRecordingService.recordMessageTokens({
-        promptTokenCount: 2,
-        candidatesTokenCount: 2,
-        totalTokenCount: 4,
-        cachedContentTokenCount: 0,
+        input: 2,
+        output: 2,
+        total: 4,
+        cached: 0,
       });
 
       // @ts-expect-error private property
@@ -285,8 +259,6 @@ describe('ChatRecordingService', () => {
         output: 2,
         total: 4,
         cached: 0,
-        thoughts: 0,
-        tool: 0,
       });
     });
   });
@@ -306,7 +278,7 @@ describe('ChatRecordingService', () => {
         messages: [
           {
             id: '1',
-            type: 'qwen',
+            type: 'gemini',
             content: '',
             timestamp: new Date().toISOString(),
           },
@@ -323,7 +295,7 @@ describe('ChatRecordingService', () => {
         status: 'awaiting_approval',
         timestamp: new Date().toISOString(),
       };
-      chatRecordingService.recordToolCalls('gemini-pro', [toolCall]);
+      chatRecordingService.recordToolCalls([toolCall]);
 
       expect(mkdirSyncSpy).toHaveBeenCalled();
       expect(writeFileSyncSpy).toHaveBeenCalled();
@@ -332,14 +304,7 @@ describe('ChatRecordingService', () => {
       ) as ConversationRecord;
       expect(conversation.messages[0]).toEqual({
         ...initialConversation.messages[0],
-        toolCalls: [
-          {
-            ...toolCall,
-            displayName: 'Test Tool',
-            description: 'A test tool',
-            renderOutputAsMarkdown: false,
-          },
-        ],
+        toolCalls: [toolCall],
       });
     });
 
@@ -370,7 +335,7 @@ describe('ChatRecordingService', () => {
         status: 'awaiting_approval',
         timestamp: new Date().toISOString(),
       };
-      chatRecordingService.recordToolCalls('gemini-pro', [toolCall]);
+      chatRecordingService.recordToolCalls([toolCall]);
 
       expect(mkdirSyncSpy).toHaveBeenCalled();
       expect(writeFileSyncSpy).toHaveBeenCalled();
@@ -382,17 +347,10 @@ describe('ChatRecordingService', () => {
         ...conversation.messages[1],
         id: 'this-is-a-test-uuid',
         model: 'gemini-pro',
-        type: 'qwen',
+        type: 'gemini',
         thoughts: [],
         content: '',
-        toolCalls: [
-          {
-            ...toolCall,
-            displayName: 'Test Tool',
-            description: 'A test tool',
-            renderOutputAsMarkdown: false,
-          },
-        ],
+        toolCalls: [toolCall],
       });
     });
   });

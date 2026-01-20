@@ -4,27 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { vi } from 'vitest';
-
-vi.mock('node:child_process', async (importOriginal) => {
-  const actual =
-    (await importOriginal()) as typeof import('node:child_process');
-  return {
-    ...actual,
-    execSync: vi.fn(),
-    spawnSync: vi.fn(() => ({ status: 0 })),
-  };
-});
-vi.mock('fs');
-vi.mock('os');
-
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getIdeInstaller } from './ide-installer.js';
 import * as child_process from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { IDE_DEFINITIONS, type IdeInfo } from './detect-ide.js';
+import { DetectedIde } from './detect-ide.js';
+
+vi.mock('child_process');
+vi.mock('fs');
+vi.mock('os');
 
 describe('ide-installer', () => {
   const HOME_DIR = '/home/user';
@@ -38,28 +28,23 @@ describe('ide-installer', () => {
   });
 
   describe('getIdeInstaller', () => {
-    it.each([
-      { ide: IDE_DEFINITIONS.vscode },
-      { ide: IDE_DEFINITIONS.firebasestudio },
-    ])('returns a VsCodeInstaller for "$ide.name"', ({ ide }) => {
-      const installer = getIdeInstaller(ide);
+    it.each([{ ide: DetectedIde.VSCode }, { ide: DetectedIde.FirebaseStudio }])(
+      'returns a VsCodeInstaller for "$ide"',
+      ({ ide }) => {
+        const installer = getIdeInstaller(ide);
 
-      expect(installer).not.toBeNull();
-      expect(installer?.install).toEqual(expect.any(Function));
-    });
+        expect(installer).not.toBeNull();
+        expect(installer?.install).toEqual(expect.any(Function));
+      },
+    );
   });
 
   describe('VsCodeInstaller', () => {
     function setup({
-      ide = IDE_DEFINITIONS.vscode,
+      ide = DetectedIde.VSCode,
       existsResult = false,
       execSync = () => '',
       platform = 'linux' as NodeJS.Platform,
-    }: {
-      ide?: IdeInfo;
-      existsResult?: boolean;
-      execSync?: () => string;
-      platform?: NodeJS.Platform;
     } = {}) {
       vi.spyOn(child_process, 'execSync').mockImplementation(execSync);
       vi.spyOn(fs, 'existsSync').mockReturnValue(existsResult);
@@ -112,30 +97,20 @@ describe('ide-installer', () => {
           platform: 'linux',
         });
         await installer.install();
-
-        // Note: The implementation uses process.platform, not the mocked platform
-        const isActuallyWindows = process.platform === 'win32';
-        const expectedCommand = isActuallyWindows ? '"code"' : 'code';
-
-        expect(child_process.spawnSync).toHaveBeenCalledWith(
-          expectedCommand,
-          [
-            '--install-extension',
-            'qwenlm.qwen-code-vscode-ide-companion',
-            '--force',
-          ],
-          { stdio: 'pipe', shell: isActuallyWindows },
+        expect(child_process.execSync).toHaveBeenCalledWith(
+          '"code" --install-extension qwenlm.qwen-code-vscode-ide-companion --force',
+          { stdio: 'pipe' },
         );
       });
 
       it.each([
         {
-          ide: IDE_DEFINITIONS.vscode,
+          ide: DetectedIde.VSCode,
           expectedMessage:
             'VS Code companion extension was installed successfully',
         },
         {
-          ide: IDE_DEFINITIONS.firebasestudio,
+          ide: DetectedIde.FirebaseStudio,
           expectedMessage:
             'Firebase Studio companion extension was installed successfully',
         },
@@ -150,12 +125,9 @@ describe('ide-installer', () => {
       );
 
       it.each([
+        { ide: DetectedIde.VSCode, expectedErr: 'VS Code CLI not found' },
         {
-          ide: IDE_DEFINITIONS.vscode,
-          expectedErr: 'VS Code CLI not found',
-        },
-        {
-          ide: IDE_DEFINITIONS.firebasestudio,
+          ide: DetectedIde.FirebaseStudio,
           expectedErr: 'Firebase Studio CLI not found',
         },
       ])(

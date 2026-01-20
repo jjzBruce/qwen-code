@@ -6,25 +6,10 @@
 
 import type {
   CompressionStatus,
-  MCPServerConfig,
-  ThoughtSummary,
   ToolCallConfirmationDetails,
-  ToolConfirmationOutcome,
   ToolResultDisplay,
 } from '@qwen-code/qwen-code-core';
 import type { PartListUnion } from '@google/genai';
-import { type ReactNode } from 'react';
-
-export type { ThoughtSummary };
-
-export enum AuthState {
-  // Attemtping to authenticate or re-authenticate
-  Unauthenticated = 'unauthenticated',
-  // Auth dialog is open for user to select auth method
-  Updating = 'updating',
-  // Successfully authenticated
-  Authenticated = 'authenticated',
-}
 
 // Only defining the state enum needed by the UI
 export enum StreamingState {
@@ -67,8 +52,6 @@ export interface IndividualToolCallDisplay {
   status: ToolCallStatus;
   confirmationDetails: ToolCallConfirmationDetails | undefined;
   renderOutputAsMarkdown?: boolean;
-  ptyId?: number;
-  outputFile?: string;
 }
 
 export interface CompressionProps {
@@ -113,29 +96,15 @@ export type HistoryItemError = HistoryItemBase & {
   text: string;
 };
 
-export type HistoryItemWarning = HistoryItemBase & {
-  type: 'warning';
-  text: string;
-};
-
 export type HistoryItemAbout = HistoryItemBase & {
   type: 'about';
-  systemInfo: {
-    cliVersion: string;
-    osPlatform: string;
-    osArch: string;
-    osRelease: string;
-    nodeVersion: string;
-    npmVersion: string;
-    sandboxEnv: string;
-    modelVersion: string;
-    selectedAuthType: string;
-    ideClient: string;
-    sessionId: string;
-    memoryUsage: string;
-    baseUrl?: string;
-    gitCommit?: string;
-  };
+  cliVersion: string;
+  osVersion: string;
+  sandboxEnv: string;
+  modelVersion: string;
+  selectedAuthType: string;
+  gcpProject: string;
+  ideClient: string;
 };
 
 export type HistoryItemHelp = HistoryItemBase & {
@@ -186,57 +155,6 @@ export type HistoryItemSummary = HistoryItemBase & {
   summary: SummaryProps;
 };
 
-export type HistoryItemExtensionsList = HistoryItemBase & {
-  type: 'extensions_list';
-};
-
-export interface ToolDefinition {
-  name: string;
-  displayName: string;
-  description?: string;
-}
-
-export type HistoryItemToolsList = HistoryItemBase & {
-  type: 'tools_list';
-  tools: ToolDefinition[];
-  showDescriptions: boolean;
-};
-
-// JSON-friendly types for using as a simple data model showing info about an
-// MCP Server.
-export interface JsonMcpTool {
-  serverName: string;
-  name: string;
-  description?: string;
-  schema?: {
-    parametersJsonSchema?: unknown;
-    parameters?: unknown;
-  };
-}
-
-export interface JsonMcpPrompt {
-  serverName: string;
-  name: string;
-  description?: string;
-}
-
-export type HistoryItemMcpStatus = HistoryItemBase & {
-  type: 'mcp_status';
-  servers: Record<string, MCPServerConfig>;
-  tools: JsonMcpTool[];
-  prompts: JsonMcpPrompt[];
-  authStatus: Record<
-    string,
-    'authenticated' | 'expired' | 'unauthenticated' | 'not-configured'
-  >;
-  blockedServers: Array<{ name: string; extensionName: string }>;
-  discoveryInProgress: boolean;
-  connectingServers: string[];
-  showDescriptions: boolean;
-  showSchema: boolean;
-  showTips: boolean;
-};
-
 // Using Omit<HistoryItem, 'id'> seems to have some issues with typescript's
 // type inference e.g. historyItem.type === 'tool_group' isn't auto-inferring that
 // 'tools' in historyItem.
@@ -248,7 +166,6 @@ export type HistoryItemWithoutId =
   | HistoryItemGeminiContent
   | HistoryItemInfo
   | HistoryItemError
-  | HistoryItemWarning
   | HistoryItemAbout
   | HistoryItemHelp
   | HistoryItemToolGroup
@@ -258,11 +175,7 @@ export type HistoryItemWithoutId =
   | HistoryItemQuit
   | HistoryItemQuitConfirmation
   | HistoryItemCompression
-  | HistoryItemSummary
-  | HistoryItemCompression
-  | HistoryItemExtensionsList
-  | HistoryItemToolsList
-  | HistoryItemMcpStatus;
+  | HistoryItemSummary;
 
 export type HistoryItem = HistoryItemWithoutId & { id: number };
 
@@ -270,7 +183,6 @@ export type HistoryItem = HistoryItemWithoutId & { id: number };
 export enum MessageType {
   INFO = 'info',
   ERROR = 'error',
-  WARNING = 'warning',
   USER = 'user',
   ABOUT = 'about',
   HELP = 'help',
@@ -282,9 +194,6 @@ export enum MessageType {
   GEMINI = 'gemini',
   COMPRESSION = 'compression',
   SUMMARY = 'summary',
-  EXTENSIONS_LIST = 'extensions_list',
-  TOOLS_LIST = 'tools_list',
-  MCP_STATUS = 'mcp_status',
 }
 
 // Simplified message structure for internal feedback
@@ -297,22 +206,13 @@ export type Message =
   | {
       type: MessageType.ABOUT;
       timestamp: Date;
-      systemInfo: {
-        cliVersion: string;
-        osPlatform: string;
-        osArch: string;
-        osRelease: string;
-        nodeVersion: string;
-        npmVersion: string;
-        sandboxEnv: string;
-        modelVersion: string;
-        selectedAuthType: string;
-        ideClient: string;
-        sessionId: string;
-        memoryUsage: string;
-        baseUrl?: string;
-        gitCommit?: string;
-      };
+      cliVersion: string;
+      osVersion: string;
+      sandboxEnv: string;
+      modelVersion: string;
+      selectedAuthType: string;
+      gcpProject: string;
+      ideClient: string;
       content?: string; // Optional content, not really used for ABOUT
     }
   | {
@@ -387,24 +287,3 @@ export type SlashCommandProcessorResult =
       type: 'handled'; // Indicates the command was processed and no further action is needed.
     }
   | SubmitPromptResult;
-
-export interface ShellConfirmationRequest {
-  commands: string[];
-  onConfirm: (
-    outcome: ToolConfirmationOutcome,
-    approvedCommands?: string[],
-  ) => void;
-}
-
-export interface ConfirmationRequest {
-  prompt: ReactNode;
-  onConfirm: (confirm: boolean) => void;
-}
-
-export interface LoopDetectionConfirmationRequest {
-  onComplete: (result: { userSelection: 'disable' | 'keep' }) => void;
-}
-
-export interface QuitConfirmationRequest {
-  onConfirm: (shouldQuit: boolean, action?: string) => void;
-}

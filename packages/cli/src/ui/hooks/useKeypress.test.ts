@@ -54,7 +54,6 @@ vi.mock('readline', () => {
 
 class MockStdin extends EventEmitter {
   isTTY = true;
-  isRaw = false;
   setRawMode = vi.fn();
   override on = this.addListener;
   override removeListener = super.removeListener;

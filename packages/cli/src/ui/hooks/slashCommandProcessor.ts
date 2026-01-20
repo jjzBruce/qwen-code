@@ -17,16 +17,15 @@ import {
   SlashCommandStatus,
   ToolConfirmationOutcome,
   Storage,
-  IdeClient,
 } from '@qwen-code/qwen-code-core';
 import { useSessionStats } from '../contexts/SessionContext.js';
 import { formatDuration } from '../utils/formatters.js';
+import { runExitCleanup } from '../../utils/cleanup.js';
 import type {
   Message,
   HistoryItemWithoutId,
-  SlashCommandProcessorResult,
   HistoryItem,
-  ConfirmationRequest,
+  SlashCommandProcessorResult,
 } from '../types.js';
 import { MessageType } from '../types.js';
 import type { LoadedSettings } from '../../config/settings.js';
@@ -35,28 +34,6 @@ import { CommandService } from '../../services/CommandService.js';
 import { BuiltinCommandLoader } from '../../services/BuiltinCommandLoader.js';
 import { FileCommandLoader } from '../../services/FileCommandLoader.js';
 import { McpPromptLoader } from '../../services/McpPromptLoader.js';
-import { parseSlashCommand } from '../../utils/commands.js';
-import {
-  type ExtensionUpdateAction,
-  type ExtensionUpdateStatus,
-} from '../state/extensions.js';
-
-interface SlashCommandProcessorActions {
-  openAuthDialog: () => void;
-  openThemeDialog: () => void;
-  openEditorDialog: () => void;
-  openSettingsDialog: () => void;
-  openModelDialog: () => void;
-  openPermissionsDialog: () => void;
-  quit: (messages: HistoryItem[]) => void;
-  setDebugMessage: (message: string) => void;
-  toggleCorgiMode: () => void;
-  dispatchExtensionStateUpdate: (action: ExtensionUpdateAction) => void;
-  addConfirmUpdateExtensionRequest: (request: ConfirmationRequest) => void;
-  openSubagentCreateDialog: () => void;
-  openAgentsManagerDialog: () => void;
-  _showQuitConfirmation: () => void;
-}
 
 /**
  * Hook to define and process slash commands (e.g., /help, /clear).
@@ -68,12 +45,21 @@ export const useSlashCommandProcessor = (
   clearItems: UseHistoryManagerReturn['clearItems'],
   loadHistory: UseHistoryManagerReturn['loadHistory'],
   refreshStatic: () => void,
+  onDebugMessage: (message: string) => void,
+  openThemeDialog: () => void,
+  openAuthDialog: () => void,
+  openEditorDialog: () => void,
+  toggleCorgiMode: () => void,
+  setQuittingMessages: (message: HistoryItem[]) => void,
+  openPrivacyNotice: () => void,
+  openSettingsDialog: () => void,
+  openModelSelectionDialog: () => void,
+  openSubagentCreateDialog: () => void,
+  openAgentsManagerDialog: () => void,
   toggleVimEnabled: () => Promise<boolean>,
   setIsProcessing: (isProcessing: boolean) => void,
   setGeminiMdFileCount: (count: number) => void,
-  actions: SlashCommandProcessorActions,
-  extensionsUpdateState: Map<string, ExtensionUpdateStatus>,
-  isConfigInitialized: boolean,
+  _showQuitConfirmation: () => void,
 ) => {
   const session = useSessionStats();
   const [commands, setCommands] = useState<readonly SlashCommand[]>([]);
@@ -119,17 +105,16 @@ export const useSlashCommandProcessor = (
     return l;
   }, [config]);
 
-  const [pendingItem, setPendingItem] = useState<HistoryItemWithoutId | null>(
-    null,
-  );
+  const [pendingCompressionItem, setPendingCompressionItem] =
+    useState<HistoryItemWithoutId | null>(null);
 
   const pendingHistoryItems = useMemo(() => {
     const items: HistoryItemWithoutId[] = [];
-    if (pendingItem != null) {
-      items.push(pendingItem);
+    if (pendingCompressionItem != null) {
+      items.push(pendingCompressionItem);
     }
     return items;
-  }, [pendingItem]);
+  }, [pendingCompressionItem]);
 
   const addMessage = useCallback(
     (message: Message) => {
@@ -138,7 +123,13 @@ export const useSlashCommandProcessor = (
       if (message.type === MessageType.ABOUT) {
         historyItemContent = {
           type: 'about',
-          systemInfo: message.systemInfo,
+          cliVersion: message.cliVersion,
+          osVersion: message.osVersion,
+          sandboxEnv: message.sandboxEnv,
+          modelVersion: message.modelVersion,
+          selectedAuthType: message.selectedAuthType,
+          gcpProject: message.gcpProject,
+          ideClient: message.ideClient,
         };
       } else if (message.type === MessageType.HELP) {
         historyItemContent = {
@@ -204,17 +195,13 @@ export const useSlashCommandProcessor = (
           refreshStatic();
         },
         loadHistory,
-        setDebugMessage: actions.setDebugMessage,
-        pendingItem,
-        setPendingItem,
-        toggleCorgiMode: actions.toggleCorgiMode,
+        setDebugMessage: onDebugMessage,
+        pendingItem: pendingCompressionItem,
+        setPendingItem: setPendingCompressionItem,
+        toggleCorgiMode,
         toggleVimEnabled,
         setGeminiMdFileCount,
         reloadCommands,
-        extensionsUpdateState,
-        dispatchExtensionStateUpdate: actions.dispatchExtensionStateUpdate,
-        addConfirmUpdateExtensionRequest:
-          actions.addConfirmUpdateExtensionRequest,
       },
       session: {
         stats: session.stats,
@@ -231,14 +218,14 @@ export const useSlashCommandProcessor = (
       clearItems,
       refreshStatic,
       session.stats,
-      actions,
-      pendingItem,
-      setPendingItem,
+      onDebugMessage,
+      pendingCompressionItem,
+      setPendingCompressionItem,
+      toggleCorgiMode,
       toggleVimEnabled,
       sessionShellAllowlist,
       setGeminiMdFileCount,
       reloadCommands,
-      extensionsUpdateState,
     ],
   );
 
@@ -247,20 +234,15 @@ export const useSlashCommandProcessor = (
       return;
     }
 
+    const ideClient = config.getIdeClient();
     const listener = () => {
       reloadCommands();
     };
 
-    (async () => {
-      const ideClient = await IdeClient.getInstance();
-      ideClient.addStatusChangeListener(listener);
-    })();
+    ideClient.addStatusChangeListener(listener);
 
     return () => {
-      (async () => {
-        const ideClient = await IdeClient.getInstance();
-        ideClient.removeStatusChangeListener(listener);
-      })();
+      ideClient.removeStatusChangeListener(listener);
     };
   }, [config, reloadCommands]);
 
@@ -284,7 +266,7 @@ export const useSlashCommandProcessor = (
     return () => {
       controller.abort();
     };
-  }, [config, reloadTrigger, isConfigInitialized]);
+  }, [config, reloadTrigger]);
 
   const handleSlashCommand = useCallback(
     async (
@@ -306,13 +288,47 @@ export const useSlashCommandProcessor = (
       const userMessageTimestamp = Date.now();
       addItem({ type: MessageType.USER, text: trimmed }, userMessageTimestamp);
 
-      let hasError = false;
-      const {
-        commandToExecute,
-        args,
-        canonicalPath: resolvedCommandPath,
-      } = parseSlashCommand(trimmed, commands);
+      const parts = trimmed.substring(1).trim().split(/\s+/);
+      const commandPath = parts.filter((p) => p); // The parts of the command, e.g., ['memory', 'add']
 
+      let currentCommands = commands;
+      let commandToExecute: SlashCommand | undefined;
+      let pathIndex = 0;
+      let hasError = false;
+      const canonicalPath: string[] = [];
+
+      for (const part of commandPath) {
+        // TODO: For better performance and architectural clarity, this two-pass
+        // search could be replaced. A more optimal approach would be to
+        // pre-compute a single lookup map in `CommandService.ts` that resolves
+        // all name and alias conflicts during the initial loading phase. The
+        // processor would then perform a single, fast lookup on that map.
+
+        // First pass: check for an exact match on the primary command name.
+        let foundCommand = currentCommands.find((cmd) => cmd.name === part);
+
+        // Second pass: if no primary name matches, check for an alias.
+        if (!foundCommand) {
+          foundCommand = currentCommands.find((cmd) =>
+            cmd.altNames?.includes(part),
+          );
+        }
+
+        if (foundCommand) {
+          commandToExecute = foundCommand;
+          canonicalPath.push(foundCommand.name);
+          pathIndex++;
+          if (foundCommand.subCommands) {
+            currentCommands = foundCommand.subCommands;
+          } else {
+            break;
+          }
+        } else {
+          break;
+        }
+      }
+
+      const resolvedCommandPath = canonicalPath;
       const subcommand =
         resolvedCommandPath.length > 1
           ? resolvedCommandPath.slice(1).join(' ')
@@ -320,6 +336,8 @@ export const useSlashCommandProcessor = (
 
       try {
         if (commandToExecute) {
+          const args = parts.slice(pathIndex).join(' ');
+
           if (commandToExecute.action) {
             const fullCommandContext: CommandContext = {
               ...commandContext,
@@ -373,28 +391,28 @@ export const useSlashCommandProcessor = (
                 case 'dialog':
                   switch (result.dialog) {
                     case 'auth':
-                      actions.openAuthDialog();
+                      openAuthDialog();
                       return { type: 'handled' };
                     case 'theme':
-                      actions.openThemeDialog();
+                      openThemeDialog();
                       return { type: 'handled' };
                     case 'editor':
-                      actions.openEditorDialog();
+                      openEditorDialog();
+                      return { type: 'handled' };
+                    case 'privacy':
+                      openPrivacyNotice();
                       return { type: 'handled' };
                     case 'settings':
-                      actions.openSettingsDialog();
+                      openSettingsDialog();
                       return { type: 'handled' };
                     case 'model':
-                      actions.openModelDialog();
-                      return { type: 'handled' };
-                    case 'permissions':
-                      actions.openPermissionsDialog();
+                      openModelSelectionDialog();
                       return { type: 'handled' };
                     case 'subagent_create':
-                      actions.openSubagentCreateDialog();
+                      openSubagentCreateDialog();
                       return { type: 'handled' };
                     case 'subagent_list':
-                      actions.openAgentsManagerDialog();
+                      openAgentsManagerDialog();
                       return { type: 'handled' };
                     case 'help':
                       return { type: 'handled' };
@@ -406,8 +424,9 @@ export const useSlashCommandProcessor = (
                     }
                   }
                 case 'load_history': {
-                  config?.getGeminiClient()?.setHistory(result.clientHistory);
-                  config?.getGeminiClient()?.stripThoughtsFromHistory();
+                  await config
+                    ?.getGeminiClient()
+                    ?.setHistory(result.clientHistory);
                   fullCommandContext.ui.clear();
                   result.history.forEach((item, index) => {
                     fullCommandContext.ui.addItem(item, index);
@@ -465,7 +484,7 @@ export const useSlashCommandProcessor = (
                           const { sessionStartTime } = session.stats;
                           const wallDuration = now - sessionStartTime.getTime();
 
-                          actions.quit([
+                          setQuittingMessages([
                             {
                               type: 'user',
                               text: `/quit`,
@@ -477,6 +496,10 @@ export const useSlashCommandProcessor = (
                               id: now,
                             },
                           ]);
+                          setTimeout(async () => {
+                            await runExitCleanup();
+                            process.exit(0);
+                          }, 100);
                         }
                       }
                     },
@@ -484,7 +507,11 @@ export const useSlashCommandProcessor = (
                   return { type: 'handled' };
 
                 case 'quit':
-                  actions.quit(result.messages);
+                  setQuittingMessages(result.messages);
+                  setTimeout(async () => {
+                    await runExitCleanup();
+                    process.exit(0);
+                  }, 100);
                   return { type: 'handled' };
 
                 case 'submit_prompt':
@@ -625,14 +652,22 @@ export const useSlashCommandProcessor = (
     [
       config,
       addItem,
-      actions,
+      openAuthDialog,
       commands,
       commandContext,
       addMessage,
+      openThemeDialog,
+      openPrivacyNotice,
+      openEditorDialog,
+      setQuittingMessages,
+      openSettingsDialog,
+      openSubagentCreateDialog,
+      openAgentsManagerDialog,
       setShellConfirmationRequest,
       setSessionShellAllowlist,
       setIsProcessing,
       setConfirmationRequest,
+      openModelSelectionDialog,
       session.stats,
     ],
   );

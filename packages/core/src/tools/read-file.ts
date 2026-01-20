@@ -67,7 +67,8 @@ class ReadFileToolInvocation extends BaseToolInvocation<
   async execute(): Promise<ToolResult> {
     const result = await processSingleFileContent(
       this.params.absolute_path,
-      this.config,
+      this.config.getTargetDir(),
+      this.config.getFileSystemService(),
       this.params.offset,
       this.params.limit,
     );
@@ -87,7 +88,16 @@ class ReadFileToolInvocation extends BaseToolInvocation<
     if (result.isTruncated) {
       const [start, end] = result.linesShown!;
       const total = result.originalLineCount!;
-      llmContent = `Showing lines ${start}-${end} of ${total} total lines.\n\n---\n\n${result.llmContent}`;
+      const nextOffset = this.params.offset
+        ? this.params.offset + end - start + 1
+        : end;
+      llmContent = `
+IMPORTANT: The file content has been truncated.
+Status: Showing lines ${start}-${end} of ${total} total lines.
+Action: To read more of the file, you can use the 'offset' and 'limit' parameters in a subsequent 'read_file' call. For example, to read the next section of the file, use offset: ${nextOffset}.
+
+--- FILE CONTENT (truncated) ---
+${result.llmContent}`;
     } else {
       llmContent = result.llmContent || '';
     }
@@ -108,6 +118,7 @@ class ReadFileToolInvocation extends BaseToolInvocation<
         lines,
         mimetype,
         path.extname(this.params.absolute_path),
+        undefined,
         programming_language,
       ),
     );
@@ -171,16 +182,9 @@ export class ReadFileTool extends BaseDeclarativeTool<
     }
 
     const workspaceContext = this.config.getWorkspaceContext();
-    const projectTempDir = this.config.storage.getProjectTempDir();
-    const resolvedFilePath = path.resolve(filePath);
-    const resolvedProjectTempDir = path.resolve(projectTempDir);
-    const isWithinTempDir =
-      resolvedFilePath.startsWith(resolvedProjectTempDir + path.sep) ||
-      resolvedFilePath === resolvedProjectTempDir;
-
-    if (!workspaceContext.isPathWithinWorkspace(filePath) && !isWithinTempDir) {
+    if (!workspaceContext.isPathWithinWorkspace(filePath)) {
       const directories = workspaceContext.getDirectories();
-      return `File path must be within one of the workspace directories: ${directories.join(', ')} or within the project temp directory: ${projectTempDir}`;
+      return `File path must be within one of the workspace directories: ${directories.join(', ')}`;
     }
     if (params.offset !== undefined && params.offset < 0) {
       return 'Offset must be a non-negative number';
@@ -190,7 +194,7 @@ export class ReadFileTool extends BaseDeclarativeTool<
     }
 
     const fileService = this.config.getFileService();
-    if (fileService.shouldQwenIgnoreFile(params.absolute_path)) {
+    if (fileService.shouldGeminiIgnoreFile(params.absolute_path)) {
       return `File path '${filePath}' is ignored by .qwenignore pattern(s).`;
     }
 

@@ -19,7 +19,6 @@ import { promisify } from 'node:util';
 import type { Config, SandboxConfig } from '@qwen-code/qwen-code-core';
 import { FatalSandboxError } from '@qwen-code/qwen-code-core';
 import { ConsolePatcher } from '../ui/utils/ConsolePatcher.js';
-import { randomBytes } from 'node:crypto';
 
 const execAsync = promisify(exec);
 
@@ -189,7 +188,7 @@ export async function start_sandbox(
   nodeArgs: string[] = [],
   cliConfig?: Config,
   cliArgs: string[] = [],
-): Promise<number> {
+) {
   const patcher = new ConsolePatcher({
     debugMode: cliConfig?.getDebugMode() || !!process.env['DEBUG'],
     stderr: true,
@@ -340,17 +339,11 @@ export async function start_sandbox(
         );
       }
       // spawn child and let it inherit stdio
-      process.stdin.pause();
       sandboxProcess = spawn(config.command, args, {
         stdio: 'inherit',
       });
-      return new Promise((resolve, reject) => {
-        sandboxProcess?.on('error', reject);
-        sandboxProcess?.on('close', (code) => {
-          process.stdin.resume();
-          resolve(code ?? 1);
-        });
-      });
+      await new Promise((resolve) => sandboxProcess?.on('close', resolve));
+      return;
     }
 
     console.error(`hopping into sandbox (command: ${config.command}) ...`);
@@ -430,9 +423,6 @@ export async function start_sandbox(
     if (process.stdin.isTTY) {
       args.push('-t');
     }
-
-    // allow access to host.docker.internal
-    args.push('--add-host', 'host.docker.internal:host-gateway');
 
     // mount current directory as working directory in sandbox (set via --workdir)
     args.push('--volume', `${workdir}:${containerWorkdir}`);
@@ -559,38 +549,19 @@ export async function start_sandbox(
       }
     }
 
-    // name container after image, plus random suffix to avoid conflicts
+    // name container after image, plus numeric suffix to avoid conflicts
     const imageName = parseImageName(image);
-    const isIntegrationTest =
-      process.env['GEMINI_CLI_INTEGRATION_TEST'] === 'true';
-    let containerName;
-    if (isIntegrationTest) {
-      containerName = `gemini-cli-integration-test-${randomBytes(4).toString(
-        'hex',
-      )}`;
-      console.log(`ContainerName: ${containerName}`);
-    } else {
-      let index = 0;
-      const containerNameCheck = execSync(
-        `${config.command} ps -a --format "{{.Names}}"`,
-      )
-        .toString()
-        .trim();
-      while (containerNameCheck.includes(`${imageName}-${index}`)) {
-        index++;
-      }
-      containerName = `${imageName}-${index}`;
-      console.log(`ContainerName (regular): ${containerName}`);
+    let index = 0;
+    const containerNameCheck = execSync(
+      `${config.command} ps -a --format "{{.Names}}"`,
+    )
+      .toString()
+      .trim();
+    while (containerNameCheck.includes(`${imageName}-${index}`)) {
+      index++;
     }
+    const containerName = `${imageName}-${index}`;
     args.push('--name', containerName, '--hostname', containerName);
-
-    // copy GEMINI_CLI_TEST_VAR for integration tests
-    if (process.env['GEMINI_CLI_TEST_VAR']) {
-      args.push(
-        '--env',
-        `GEMINI_CLI_TEST_VAR=${process.env['GEMINI_CLI_TEST_VAR']}`,
-      );
-    }
 
     // copy GEMINI_API_KEY(s)
     if (process.env['GEMINI_API_KEY']) {
@@ -834,25 +805,22 @@ export async function start_sandbox(
     }
 
     // spawn child and let it inherit stdio
-    process.stdin.pause();
     sandboxProcess = spawn(config.command, args, {
       stdio: 'inherit',
     });
 
-    return new Promise<number>((resolve, reject) => {
-      sandboxProcess.on('error', (err) => {
-        console.error('Sandbox process error:', err);
-        reject(err);
-      });
+    sandboxProcess.on('error', (err) => {
+      console.error('Sandbox process error:', err);
+    });
 
+    await new Promise<void>((resolve) => {
       sandboxProcess?.on('close', (code, signal) => {
-        process.stdin.resume();
-        if (code !== 0 && code !== null) {
+        if (code !== 0) {
           console.log(
             `Sandbox process exited with code: ${code}, signal: ${signal}`,
           );
         }
-        resolve(code ?? 1);
+        resolve();
       });
     });
   } finally {

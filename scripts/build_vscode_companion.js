@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
 
-execSync('npm --workspace=qwen-code-vscode-ide-companion run package', {
+execSync('npx --yes @vscode/vsce package --no-dependencies', {
   stdio: 'inherit',
-  cwd: root,
+  cwd: join(root, 'packages', 'vscode-ide-companion'),
 });

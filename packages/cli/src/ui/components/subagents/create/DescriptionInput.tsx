@@ -13,6 +13,7 @@ import { type Config, subagentGenerator } from '@qwen-code/qwen-code-core';
 import { useKeypress, type Key } from '../../../hooks/useKeypress.js';
 import { keyMatchers, Command } from '../../../keyMatchers.js';
 import { theme } from '../../../semantic-colors.js';
+import { Colors } from '../../../colors.js';
 import { TextInput } from '../../shared/TextInput.js';
 
 /**
@@ -51,7 +52,7 @@ export function DescriptionInput({
       try {
         const generated = await subagentGenerator(
           userDescription,
-          config,
+          config.getGeminiClient(),
           abortController.signal,
         );
 
@@ -141,7 +142,7 @@ export function DescriptionInput({
   return (
     <Box flexDirection="column" gap={1}>
       <Box>
-        <Text color={theme.text.secondary}>
+        <Text color={Colors.Gray}>
           Describe what this subagent should do and when it should be used. (Be
           comprehensive for best results)
         </Text>

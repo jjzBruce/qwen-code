@@ -35,12 +35,10 @@ export function WelcomeBackDialog({
 
   const options: Array<RadioSelectItem<'restart' | 'continue'>> = [
     {
-      key: 'restart',
       label: 'Start new chat session',
       value: 'restart',
     },
     {
-      key: 'continue',
       label: 'Continue previous conversation',
       value: 'continue',
     },

@@ -100,7 +100,6 @@ export const summaryCommand: SlashCommand = {
         ],
         {},
         new AbortController().signal,
-        config.getModel(),
       );
 
       // Extract text from response

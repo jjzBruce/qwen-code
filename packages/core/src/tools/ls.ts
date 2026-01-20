@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import fs from 'node:fs/promises';
+import fs from 'node:fs';
 import path from 'node:path';
 import type { ToolInvocation, ToolResult } from './tools.js';
 import { BaseDeclarativeTool, BaseToolInvocation, Kind } from './tools.js';
 import { makeRelative, shortenPath } from '../utils/paths.js';
 import type { Config } from '../config/config.js';
-import { DEFAULT_FILE_FILTERING_OPTIONS } from '../config/constants.js';
+import { DEFAULT_FILE_FILTERING_OPTIONS } from '../config/config.js';
 import { ToolErrorType } from './tool-error.js';
 
 /**
@@ -32,7 +32,7 @@ export interface LSToolParams {
    */
   file_filtering_options?: {
     respect_git_ignore?: boolean;
-    respect_qwen_ignore?: boolean;
+    respect_gemini_ignore?: boolean;
   };
 }
 
@@ -133,7 +133,7 @@ class LSToolInvocation extends BaseToolInvocation<LSToolParams, ToolResult> {
    */
   async execute(_signal: AbortSignal): Promise<ToolResult> {
     try {
-      const stats = await fs.stat(this.params.path);
+      const stats = fs.statSync(this.params.path);
       if (!stats) {
         // fs.statSync throws on non-existence, so this check might be redundant
         // but keeping for clarity. Error message adjusted.
@@ -151,7 +151,28 @@ class LSToolInvocation extends BaseToolInvocation<LSToolParams, ToolResult> {
         );
       }
 
-      const files = await fs.readdir(this.params.path);
+      const files = fs.readdirSync(this.params.path);
+
+      const defaultFileIgnores =
+        this.config.getFileFilteringOptions() ?? DEFAULT_FILE_FILTERING_OPTIONS;
+
+      const fileFilteringOptions = {
+        respectGitIgnore:
+          this.params.file_filtering_options?.respect_git_ignore ??
+          defaultFileIgnores.respectGitIgnore,
+        respectGeminiIgnore:
+          this.params.file_filtering_options?.respect_gemini_ignore ??
+          defaultFileIgnores.respectGeminiIgnore,
+      };
+
+      // Get centralized file discovery service
+
+      const fileDiscovery = this.config.getFileService();
+
+      const entries: FileEntry[] = [];
+      let gitIgnoredCount = 0;
+      let geminiIgnoredCount = 0;
+
       if (files.length === 0) {
         // Changed error message to be more neutral for LLM
         return {
@@ -160,39 +181,38 @@ class LSToolInvocation extends BaseToolInvocation<LSToolParams, ToolResult> {
         };
       }
 
-      const relativePaths = files.map((file) =>
-        path.relative(
+      for (const file of files) {
+        if (this.shouldIgnore(file, this.params.ignore)) {
+          continue;
+        }
+
+        const fullPath = path.join(this.params.path, file);
+        const relativePath = path.relative(
           this.config.getTargetDir(),
-          path.join(this.params.path, file),
-        ),
-      );
+          fullPath,
+        );
 
-      const fileDiscovery = this.config.getFileService();
-      const { filteredPaths, gitIgnoredCount, qwenIgnoredCount } =
-        fileDiscovery.filterFilesWithReport(relativePaths, {
-          respectGitIgnore:
-            this.params.file_filtering_options?.respect_git_ignore ??
-            this.config.getFileFilteringOptions().respectGitIgnore ??
-            DEFAULT_FILE_FILTERING_OPTIONS.respectGitIgnore,
-          respectQwenIgnore:
-            this.params.file_filtering_options?.respect_qwen_ignore ??
-            this.config.getFileFilteringOptions().respectQwenIgnore ??
-            DEFAULT_FILE_FILTERING_OPTIONS.respectQwenIgnore,
-        });
-
-      const entries = [];
-      for (const relativePath of filteredPaths) {
-        const fullPath = path.resolve(this.config.getTargetDir(), relativePath);
-
-        if (this.shouldIgnore(path.basename(fullPath), this.params.ignore)) {
+        // Check if this file should be ignored based on git or gemini ignore rules
+        if (
+          fileFilteringOptions.respectGitIgnore &&
+          fileDiscovery.shouldGitIgnoreFile(relativePath)
+        ) {
+          gitIgnoredCount++;
+          continue;
+        }
+        if (
+          fileFilteringOptions.respectGeminiIgnore &&
+          fileDiscovery.shouldGeminiIgnoreFile(relativePath)
+        ) {
+          geminiIgnoredCount++;
           continue;
         }
 
         try {
-          const stats = await fs.stat(fullPath);
+          const stats = fs.statSync(fullPath);
           const isDir = stats.isDirectory();
           entries.push({
-            name: path.basename(fullPath),
+            name: file,
             path: fullPath,
             isDirectory: isDir,
             size: isDir ? 0 : stats.size,
@@ -221,9 +241,10 @@ class LSToolInvocation extends BaseToolInvocation<LSToolParams, ToolResult> {
       if (gitIgnoredCount > 0) {
         ignoredMessages.push(`${gitIgnoredCount} git-ignored`);
       }
-      if (qwenIgnoredCount > 0) {
-        ignoredMessages.push(`${qwenIgnoredCount} qwen-ignored`);
+      if (geminiIgnoredCount > 0) {
+        ignoredMessages.push(`${geminiIgnoredCount} gemini-ignored`);
       }
+
       if (ignoredMessages.length > 0) {
         resultMessage += `\n\n(${ignoredMessages.join(', ')})`;
       }
@@ -284,7 +305,7 @@ export class LSTool extends BaseDeclarativeTool<LSToolParams, ToolResult> {
                   'Optional: Whether to respect .gitignore patterns when listing files. Only available in git repositories. Defaults to true.',
                 type: 'boolean',
               },
-              respect_qwen_ignore: {
+              respect_gemini_ignore: {
                 description:
                   'Optional: Whether to respect .qwenignore patterns when listing files. Defaults to true.',
                 type: 'boolean',

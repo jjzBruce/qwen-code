@@ -9,13 +9,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import pathMod from 'node:path';
 import { useState, useCallback, useEffect, useMemo, useReducer } from 'react';
+import stringWidth from 'string-width';
 import { unescapePath } from '@qwen-code/qwen-code-core';
 import {
   toCodePoints,
   cpLen,
   cpSlice,
   stripUnsafeCharacters,
-  getCachedStringWidth,
 } from '../../utils/textUtils.js';
 import type { VimAction } from './vim-buffer-actions.js';
 import { handleVimAction } from './vim-buffer-actions.js';
@@ -629,23 +629,21 @@ export function logicalPosToOffset(
   return offset;
 }
 
-export interface VisualLayout {
-  visualLines: string[];
-  // For each logical line, an array of [visualLineIndex, startColInLogical]
-  logicalToVisualMap: Array<Array<[number, number]>>;
-  // For each visual line, its [logicalLineIndex, startColInLogical]
-  visualToLogicalMap: Array<[number, number]>;
-}
-
-// Calculates the visual wrapping of lines and the mapping between logical and visual coordinates.
-// This is an expensive operation and should be memoized.
-function calculateLayout(
+// Helper to calculate visual lines and map cursor positions
+function calculateVisualLayout(
   logicalLines: string[],
+  logicalCursor: [number, number],
   viewportWidth: number,
-): VisualLayout {
+): {
+  visualLines: string[];
+  visualCursor: [number, number];
+  logicalToVisualMap: Array<Array<[number, number]>>; // For each logical line, an array of [visualLineIndex, startColInLogical]
+  visualToLogicalMap: Array<[number, number]>; // For each visual line, its [logicalLineIndex, startColInLogical]
+} {
   const visualLines: string[] = [];
   const logicalToVisualMap: Array<Array<[number, number]>> = [];
   const visualToLogicalMap: Array<[number, number]> = [];
+  let currentVisualCursor: [number, number] = [0, 0];
 
   logicalLines.forEach((logLine, logIndex) => {
     logicalToVisualMap[logIndex] = [];
@@ -654,6 +652,9 @@ function calculateLayout(
       logicalToVisualMap[logIndex].push([visualLines.length, 0]);
       visualToLogicalMap.push([logIndex, 0]);
       visualLines.push('');
+      if (logIndex === logicalCursor[0] && logicalCursor[1] === 0) {
+        currentVisualCursor = [visualLines.length - 1, 0];
+      }
     } else {
       // Non-empty logical line
       let currentPosInLogLine = 0; // Tracks position within the current logical line (code point index)
@@ -669,7 +670,7 @@ function calculateLayout(
         // Iterate through code points to build the current visual line (chunk)
         for (let i = currentPosInLogLine; i < codePointsInLogLine.length; i++) {
           const char = codePointsInLogLine[i];
-          const charVisualWidth = getCachedStringWidth(char);
+          const charVisualWidth = stringWidth(char);
 
           if (currentChunkVisualWidth + charVisualWidth > viewportWidth) {
             // Character would exceed viewport width
@@ -753,6 +754,30 @@ function calculateLayout(
         visualToLogicalMap.push([logIndex, currentPosInLogLine]);
         visualLines.push(currentChunk);
 
+        // Cursor mapping logic
+        // Note: currentPosInLogLine here is the start of the currentChunk within the logical line.
+        if (logIndex === logicalCursor[0]) {
+          const cursorLogCol = logicalCursor[1]; // This is a code point index
+          if (
+            cursorLogCol >= currentPosInLogLine &&
+            cursorLogCol < currentPosInLogLine + numCodePointsInChunk // Cursor is within this chunk
+          ) {
+            currentVisualCursor = [
+              visualLines.length - 1,
+              cursorLogCol - currentPosInLogLine, // Visual col is also code point index within visual line
+            ];
+          } else if (
+            cursorLogCol === currentPosInLogLine + numCodePointsInChunk &&
+            numCodePointsInChunk > 0
+          ) {
+            // Cursor is exactly at the end of this non-empty chunk
+            currentVisualCursor = [
+              visualLines.length - 1,
+              numCodePointsInChunk,
+            ];
+          }
+        }
+
         const logicalStartOfThisChunk = currentPosInLogLine;
         currentPosInLogLine += numCodePointsInChunk;
 
@@ -766,6 +791,23 @@ function calculateLayout(
           codePointsInLogLine[currentPosInLogLine] === ' '
         ) {
           currentPosInLogLine++;
+        }
+      }
+      // After all chunks of a non-empty logical line are processed,
+      // if the cursor is at the very end of this logical line, update visual cursor.
+      if (
+        logIndex === logicalCursor[0] &&
+        logicalCursor[1] === codePointsInLogLine.length // Cursor at end of logical line
+      ) {
+        const lastVisualLineIdx = visualLines.length - 1;
+        if (
+          lastVisualLineIdx >= 0 &&
+          visualLines[lastVisualLineIdx] !== undefined
+        ) {
+          currentVisualCursor = [
+            lastVisualLineIdx,
+            cpLen(visualLines[lastVisualLineIdx]), // Cursor at end of last visual line for this logical line
+          ];
         }
       }
     }
@@ -782,65 +824,25 @@ function calculateLayout(
       logicalToVisualMap[0].push([0, 0]);
       visualToLogicalMap.push([0, 0]);
     }
+    currentVisualCursor = [0, 0];
+  }
+  // Handle cursor at the very end of the text (after all processing)
+  // This case might be covered by the loop end condition now, but kept for safety.
+  else if (
+    logicalCursor[0] === logicalLines.length - 1 &&
+    logicalCursor[1] === cpLen(logicalLines[logicalLines.length - 1]) &&
+    visualLines.length > 0
+  ) {
+    const lastVisLineIdx = visualLines.length - 1;
+    currentVisualCursor = [lastVisLineIdx, cpLen(visualLines[lastVisLineIdx])];
   }
 
   return {
     visualLines,
+    visualCursor: currentVisualCursor,
     logicalToVisualMap,
     visualToLogicalMap,
   };
-}
-
-// Calculates the visual cursor position based on a pre-calculated layout.
-// This is a lightweight operation.
-function calculateVisualCursorFromLayout(
-  layout: VisualLayout,
-  logicalCursor: [number, number],
-): [number, number] {
-  const { logicalToVisualMap, visualLines } = layout;
-  const [logicalRow, logicalCol] = logicalCursor;
-
-  const segmentsForLogicalLine = logicalToVisualMap[logicalRow];
-
-  if (!segmentsForLogicalLine || segmentsForLogicalLine.length === 0) {
-    // This can happen for an empty document.
-    return [0, 0];
-  }
-
-  // Find the segment where the logical column fits.
-  // The segments are sorted by startColInLogical.
-  let targetSegmentIndex = segmentsForLogicalLine.findIndex(
-    ([, startColInLogical], index) => {
-      const nextStartColInLogical =
-        index + 1 < segmentsForLogicalLine.length
-          ? segmentsForLogicalLine[index + 1][1]
-          : Infinity;
-      return (
-        logicalCol >= startColInLogical && logicalCol < nextStartColInLogical
-      );
-    },
-  );
-
-  // If not found, it means the cursor is at the end of the logical line.
-  if (targetSegmentIndex === -1) {
-    if (logicalCol === 0) {
-      targetSegmentIndex = 0;
-    } else {
-      targetSegmentIndex = segmentsForLogicalLine.length - 1;
-    }
-  }
-
-  const [visualRow, startColInLogical] =
-    segmentsForLogicalLine[targetSegmentIndex];
-  const visualCol = logicalCol - startColInLogical;
-
-  // The visual column should not exceed the length of the visual line.
-  const clampedVisualCol = Math.min(
-    visualCol,
-    cpLen(visualLines[visualRow] ?? ''),
-  );
-
-  return [visualRow, clampedVisualCol];
 }
 
 // --- Start of reducer logic ---
@@ -855,8 +857,6 @@ export interface TextBufferState {
   clipboard: string | null;
   selectionAnchor: [number, number] | null;
   viewportWidth: number;
-  viewportHeight: number;
-  visualLayout: VisualLayout;
 }
 
 const historyLimit = 100;
@@ -884,14 +884,6 @@ export type TextBufferAction =
         dir: Direction;
       };
     }
-  | {
-      type: 'set_cursor';
-      payload: {
-        cursorRow: number;
-        cursorCol: number;
-        preferredCol: number | null;
-      };
-    }
   | { type: 'delete' }
   | { type: 'delete_word_left' }
   | { type: 'delete_word_right' }
@@ -911,7 +903,7 @@ export type TextBufferAction =
     }
   | { type: 'move_to_offset'; payload: { offset: number } }
   | { type: 'create_undo_snapshot' }
-  | { type: 'set_viewport'; payload: { width: number; height: number } }
+  | { type: 'set_viewport_width'; payload: number }
   | { type: 'vim_delete_word_forward'; payload: { count: number } }
   | { type: 'vim_delete_word_backward'; payload: { count: number } }
   | { type: 'vim_delete_word_end'; payload: { count: number } }
@@ -949,7 +941,7 @@ export type TextBufferAction =
   | { type: 'vim_move_to_line'; payload: { lineNumber: number } }
   | { type: 'vim_escape_insert_mode' };
 
-function textBufferReducerLogic(
+export function textBufferReducer(
   state: TextBufferState,
   action: TextBufferAction,
 ): TextBufferState {
@@ -1055,120 +1047,80 @@ function textBufferReducerLogic(
       };
     }
 
-    case 'set_viewport': {
-      const { width, height } = action.payload;
-      if (width === state.viewportWidth && height === state.viewportHeight) {
+    case 'set_viewport_width': {
+      if (action.payload === state.viewportWidth) {
         return state;
       }
-      return {
-        ...state,
-        viewportWidth: width,
-        viewportHeight: height,
-      };
+      return { ...state, viewportWidth: action.payload };
     }
 
     case 'move': {
       const { dir } = action.payload;
-      const { cursorRow, cursorCol, lines, visualLayout, preferredCol } = state;
+      const { lines, cursorRow, cursorCol, viewportWidth } = state;
+      const visualLayout = calculateVisualLayout(
+        lines,
+        [cursorRow, cursorCol],
+        viewportWidth,
+      );
+      const { visualLines, visualCursor, visualToLogicalMap } = visualLayout;
 
-      // Visual movements
-      if (
-        dir === 'left' ||
-        dir === 'right' ||
-        dir === 'up' ||
-        dir === 'down' ||
-        dir === 'home' ||
-        dir === 'end'
-      ) {
-        const visualCursor = calculateVisualCursorFromLayout(visualLayout, [
-          cursorRow,
-          cursorCol,
-        ]);
-        const { visualLines, visualToLogicalMap } = visualLayout;
+      let newVisualRow = visualCursor[0];
+      let newVisualCol = visualCursor[1];
+      let newPreferredCol = state.preferredCol;
 
-        let newVisualRow = visualCursor[0];
-        let newVisualCol = visualCursor[1];
-        let newPreferredCol = preferredCol;
+      const currentVisLineLen = cpLen(visualLines[newVisualRow] ?? '');
 
-        const currentVisLineLen = cpLen(visualLines[newVisualRow] ?? '');
-
-        switch (dir) {
-          case 'left':
-            newPreferredCol = null;
-            if (newVisualCol > 0) {
-              newVisualCol--;
-            } else if (newVisualRow > 0) {
-              newVisualRow--;
-              newVisualCol = cpLen(visualLines[newVisualRow] ?? '');
-            }
-            break;
-          case 'right':
-            newPreferredCol = null;
-            if (newVisualCol < currentVisLineLen) {
-              newVisualCol++;
-            } else if (newVisualRow < visualLines.length - 1) {
-              newVisualRow++;
-              newVisualCol = 0;
-            }
-            break;
-          case 'up':
-            if (newVisualRow > 0) {
-              if (newPreferredCol === null) newPreferredCol = newVisualCol;
-              newVisualRow--;
-              newVisualCol = clamp(
-                newPreferredCol,
-                0,
-                cpLen(visualLines[newVisualRow] ?? ''),
-              );
-            }
-            break;
-          case 'down':
-            if (newVisualRow < visualLines.length - 1) {
-              if (newPreferredCol === null) newPreferredCol = newVisualCol;
-              newVisualRow++;
-              newVisualCol = clamp(
-                newPreferredCol,
-                0,
-                cpLen(visualLines[newVisualRow] ?? ''),
-              );
-            }
-            break;
-          case 'home':
-            newPreferredCol = null;
-            newVisualCol = 0;
-            break;
-          case 'end':
-            newPreferredCol = null;
-            newVisualCol = currentVisLineLen;
-            break;
-          default: {
-            const exhaustiveCheck: never = dir;
-            console.error(
-              `Unknown visual movement direction: ${exhaustiveCheck}`,
-            );
-            return state;
-          }
-        }
-
-        if (visualToLogicalMap[newVisualRow]) {
-          const [logRow, logStartCol] = visualToLogicalMap[newVisualRow];
-          return {
-            ...state,
-            cursorRow: logRow,
-            cursorCol: clamp(
-              logStartCol + newVisualCol,
-              0,
-              cpLen(lines[logRow] ?? ''),
-            ),
-            preferredCol: newPreferredCol,
-          };
-        }
-        return state;
-      }
-
-      // Logical movements
       switch (dir) {
+        case 'left':
+          newPreferredCol = null;
+          if (newVisualCol > 0) {
+            newVisualCol--;
+          } else if (newVisualRow > 0) {
+            newVisualRow--;
+            newVisualCol = cpLen(visualLines[newVisualRow] ?? '');
+          }
+          break;
+        case 'right':
+          newPreferredCol = null;
+          if (newVisualCol < currentVisLineLen) {
+            newVisualCol++;
+          } else if (newVisualRow < visualLines.length - 1) {
+            newVisualRow++;
+            newVisualCol = 0;
+          }
+          break;
+        case 'up':
+          if (newVisualRow > 0) {
+            if (newPreferredCol === null) newPreferredCol = newVisualCol;
+            newVisualRow--;
+            newVisualCol = clamp(
+              newPreferredCol,
+              0,
+              cpLen(visualLines[newVisualRow] ?? ''),
+            );
+          }
+          break;
+        case 'down':
+          if (newVisualRow < visualLines.length - 1) {
+            if (newPreferredCol === null) newPreferredCol = newVisualCol;
+            newVisualRow++;
+            newVisualCol = clamp(
+              newPreferredCol,
+              0,
+              cpLen(visualLines[newVisualRow] ?? ''),
+            );
+          }
+          break;
+        case 'home':
+          newPreferredCol = null;
+          newVisualCol = 0;
+          break;
+        case 'end':
+          newPreferredCol = null;
+          newVisualCol = currentVisLineLen;
+          break;
         case 'wordLeft': {
+          const { cursorRow, cursorCol, lines } = state;
           if (cursorCol === 0 && cursorRow === 0) return state;
 
           let newCursorRow = cursorRow;
@@ -1204,6 +1156,7 @@ function textBufferReducerLogic(
           };
         }
         case 'wordRight': {
+          const { cursorRow, cursorCol, lines } = state;
           if (
             cursorRow === lines.length - 1 &&
             cursorCol === cpLen(lines[cursorRow] ?? '')
@@ -1233,15 +1186,23 @@ function textBufferReducerLogic(
           };
         }
         default:
-          return state;
+          break;
       }
-    }
 
-    case 'set_cursor': {
-      return {
-        ...state,
-        ...action.payload,
-      };
+      if (visualToLogicalMap[newVisualRow]) {
+        const [logRow, logStartCol] = visualToLogicalMap[newVisualRow];
+        return {
+          ...state,
+          cursorRow: logRow,
+          cursorCol: clamp(
+            logStartCol + newVisualCol,
+            0,
+            cpLen(state.lines[logRow] ?? ''),
+          ),
+          preferredCol: newPreferredCol,
+        };
+      }
+      return state;
     }
 
     case 'delete': {
@@ -1253,22 +1214,14 @@ function textBufferReducerLogic(
         newLines[cursorRow] =
           cpSlice(lineContent, 0, cursorCol) +
           cpSlice(lineContent, cursorCol + 1);
-        return {
-          ...nextState,
-          lines: newLines,
-          preferredCol: null,
-        };
+        return { ...nextState, lines: newLines, preferredCol: null };
       } else if (cursorRow < lines.length - 1) {
         const nextState = pushUndoLocal(state);
         const nextLineContent = currentLine(cursorRow + 1);
         const newLines = [...nextState.lines];
         newLines[cursorRow] = lineContent + nextLineContent;
         newLines.splice(cursorRow + 1, 1);
-        return {
-          ...nextState,
-          lines: newLines,
-          preferredCol: null,
-        };
+        return { ...nextState, lines: newLines, preferredCol: null };
       }
       return state;
     }
@@ -1276,38 +1229,47 @@ function textBufferReducerLogic(
     case 'delete_word_left': {
       const { cursorRow, cursorCol } = state;
       if (cursorCol === 0 && cursorRow === 0) return state;
-
-      const nextState = pushUndoLocal(state);
-      const newLines = [...nextState.lines];
-      let newCursorRow = cursorRow;
-      let newCursorCol = cursorCol;
-
-      if (newCursorCol > 0) {
-        const lineContent = currentLine(newCursorRow);
-        const prevWordStart = findPrevWordStartInLine(
-          lineContent,
-          newCursorCol,
-        );
-        const start = prevWordStart === null ? 0 : prevWordStart;
-        newLines[newCursorRow] =
-          cpSlice(lineContent, 0, start) + cpSlice(lineContent, newCursorCol);
-        newCursorCol = start;
-      } else {
+      if (cursorCol === 0) {
         // Act as a backspace
+        const nextState = pushUndoLocal(state);
         const prevLineContent = currentLine(cursorRow - 1);
         const currentLineContentVal = currentLine(cursorRow);
         const newCol = cpLen(prevLineContent);
+        const newLines = [...nextState.lines];
         newLines[cursorRow - 1] = prevLineContent + currentLineContentVal;
         newLines.splice(cursorRow, 1);
-        newCursorRow--;
-        newCursorCol = newCol;
+        return {
+          ...nextState,
+          lines: newLines,
+          cursorRow: cursorRow - 1,
+          cursorCol: newCol,
+          preferredCol: null,
+        };
       }
-
+      const nextState = pushUndoLocal(state);
+      const lineContent = currentLine(cursorRow);
+      const arr = toCodePoints(lineContent);
+      let start = cursorCol;
+      let onlySpaces = true;
+      for (let i = 0; i < start; i++) {
+        if (isWordChar(arr[i])) {
+          onlySpaces = false;
+          break;
+        }
+      }
+      if (onlySpaces && start > 0) {
+        start--;
+      } else {
+        while (start > 0 && !isWordChar(arr[start - 1])) start--;
+        while (start > 0 && isWordChar(arr[start - 1])) start--;
+      }
+      const newLines = [...nextState.lines];
+      newLines[cursorRow] =
+        cpSlice(lineContent, 0, start) + cpSlice(lineContent, cursorCol);
       return {
         ...nextState,
         lines: newLines,
-        cursorRow: newCursorRow,
-        cursorCol: newCursorCol,
+        cursorCol: start,
         preferredCol: null,
       };
     }
@@ -1315,32 +1277,26 @@ function textBufferReducerLogic(
     case 'delete_word_right': {
       const { cursorRow, cursorCol, lines } = state;
       const lineContent = currentLine(cursorRow);
-      const lineLen = cpLen(lineContent);
-
-      if (cursorCol >= lineLen && cursorRow === lines.length - 1) {
+      const arr = toCodePoints(lineContent);
+      if (cursorCol >= arr.length && cursorRow === lines.length - 1)
         return state;
-      }
-
-      const nextState = pushUndoLocal(state);
-      const newLines = [...nextState.lines];
-
-      if (cursorCol >= lineLen) {
-        // Act as a delete, joining with the next line
+      if (cursorCol >= arr.length) {
+        // Act as a delete
+        const nextState = pushUndoLocal(state);
         const nextLineContent = currentLine(cursorRow + 1);
+        const newLines = [...nextState.lines];
         newLines[cursorRow] = lineContent + nextLineContent;
         newLines.splice(cursorRow + 1, 1);
-      } else {
-        const nextWordStart = findNextWordStartInLine(lineContent, cursorCol);
-        const end = nextWordStart === null ? lineLen : nextWordStart;
-        newLines[cursorRow] =
-          cpSlice(lineContent, 0, cursorCol) + cpSlice(lineContent, end);
+        return { ...nextState, lines: newLines, preferredCol: null };
       }
-
-      return {
-        ...nextState,
-        lines: newLines,
-        preferredCol: null,
-      };
+      const nextState = pushUndoLocal(state);
+      let end = cursorCol;
+      while (end < arr.length && !isWordChar(arr[end])) end++;
+      while (end < arr.length && isWordChar(arr[end])) end++;
+      const newLines = [...nextState.lines];
+      newLines[cursorRow] =
+        cpSlice(lineContent, 0, cursorCol) + cpSlice(lineContent, end);
+      return { ...nextState, lines: newLines, preferredCol: null };
     }
 
     case 'kill_line_right': {
@@ -1350,10 +1306,7 @@ function textBufferReducerLogic(
         const nextState = pushUndoLocal(state);
         const newLines = [...nextState.lines];
         newLines[cursorRow] = cpSlice(lineContent, 0, cursorCol);
-        return {
-          ...nextState,
-          lines: newLines,
-        };
+        return { ...nextState, lines: newLines };
       } else if (cursorRow < lines.length - 1) {
         // Act as a delete
         const nextState = pushUndoLocal(state);
@@ -1361,11 +1314,7 @@ function textBufferReducerLogic(
         const newLines = [...nextState.lines];
         newLines[cursorRow] = lineContent + nextLineContent;
         newLines.splice(cursorRow + 1, 1);
-        return {
-          ...nextState,
-          lines: newLines,
-          preferredCol: null,
-        };
+        return { ...nextState, lines: newLines, preferredCol: null };
       }
       return state;
     }
@@ -1495,25 +1444,6 @@ function textBufferReducerLogic(
   }
 }
 
-export function textBufferReducer(
-  state: TextBufferState,
-  action: TextBufferAction,
-): TextBufferState {
-  const newState = textBufferReducerLogic(state, action);
-
-  if (
-    newState.lines !== state.lines ||
-    newState.viewportWidth !== state.viewportWidth
-  ) {
-    return {
-      ...newState,
-      visualLayout: calculateLayout(newState.lines, newState.viewportWidth),
-    };
-  }
-
-  return newState;
-}
-
 // --- End of reducer logic ---
 
 export function useTextBuffer({
@@ -1532,10 +1462,6 @@ export function useTextBuffer({
       lines.length === 0 ? [''] : lines,
       initialCursorOffset,
     );
-    const visualLayout = calculateLayout(
-      lines.length === 0 ? [''] : lines,
-      viewport.width,
-    );
     return {
       lines: lines.length === 0 ? [''] : lines,
       cursorRow: initialCursorRow,
@@ -1546,29 +1472,21 @@ export function useTextBuffer({
       clipboard: null,
       selectionAnchor: null,
       viewportWidth: viewport.width,
-      viewportHeight: viewport.height,
-      visualLayout,
     };
-  }, [initialText, initialCursorOffset, viewport.width, viewport.height]);
+  }, [initialText, initialCursorOffset, viewport.width]);
 
   const [state, dispatch] = useReducer(textBufferReducer, initialState);
-  const {
-    lines,
-    cursorRow,
-    cursorCol,
-    preferredCol,
-    selectionAnchor,
-    visualLayout,
-  } = state;
+  const { lines, cursorRow, cursorCol, preferredCol, selectionAnchor } = state;
 
   const text = useMemo(() => lines.join('\n'), [lines]);
 
-  const visualCursor = useMemo(
-    () => calculateVisualCursorFromLayout(visualLayout, [cursorRow, cursorCol]),
-    [visualLayout, cursorRow, cursorCol],
+  const visualLayout = useMemo(
+    () =>
+      calculateVisualLayout(lines, [cursorRow, cursorCol], state.viewportWidth),
+    [lines, cursorRow, cursorCol, state.viewportWidth],
   );
 
-  const { visualLines, visualToLogicalMap } = visualLayout;
+  const { visualLines, visualCursor } = visualLayout;
 
   const [visualScrollRow, setVisualScrollRow] = useState<number>(0);
 
@@ -1579,17 +1497,12 @@ export function useTextBuffer({
   }, [text, onChange]);
 
   useEffect(() => {
-    dispatch({
-      type: 'set_viewport',
-      payload: { width: viewport.width, height: viewport.height },
-    });
-  }, [viewport.width, viewport.height]);
+    dispatch({ type: 'set_viewport_width', payload: viewport.width });
+  }, [viewport.width]);
 
   // Update visual scroll (vertical)
   useEffect(() => {
     const { height } = viewport;
-    const totalVisualLines = visualLines.length;
-    const maxScrollStart = Math.max(0, totalVisualLines - height);
     let newVisualScrollRow = visualScrollRow;
 
     if (visualCursor[0] < visualScrollRow) {
@@ -1597,15 +1510,10 @@ export function useTextBuffer({
     } else if (visualCursor[0] >= visualScrollRow + height) {
       newVisualScrollRow = visualCursor[0] - height + 1;
     }
-
-    // When the number of visual lines shrinks (e.g., after widening the viewport),
-    // ensure scroll never starts beyond the last valid start so we can render a full window.
-    newVisualScrollRow = clamp(newVisualScrollRow, 0, maxScrollStart);
-
     if (newVisualScrollRow !== visualScrollRow) {
       setVisualScrollRow(newVisualScrollRow);
     }
-  }, [visualCursor, visualScrollRow, viewport, visualLines.length]);
+  }, [visualCursor, visualScrollRow, viewport]);
 
   const insert = useCallback(
     (ch: string, { paste = false }: { paste?: boolean } = {}): void => {
@@ -1663,12 +1571,9 @@ export function useTextBuffer({
     dispatch({ type: 'delete' });
   }, []);
 
-  const move = useCallback(
-    (dir: Direction): void => {
-      dispatch({ type: 'move', payload: { dir } });
-    },
-    [dispatch],
-  );
+  const move = useCallback((dir: Direction): void => {
+    dispatch({ type: 'move', payload: { dir } });
+  }, []);
 
   const undo = useCallback((): void => {
     dispatch({ type: 'undo' });
@@ -1931,23 +1836,11 @@ export function useTextBuffer({
       )
         backspace();
       else if (key.name === 'delete' || (key.ctrl && key.name === 'd')) del();
-      else if (key.ctrl && !key.shift && key.name === 'z') undo();
-      else if (key.ctrl && key.shift && key.name === 'z') redo();
       else if (input && !key.ctrl && !key.meta) {
         insert(input, { paste: key.paste });
       }
     },
-    [
-      newline,
-      move,
-      deleteWordLeft,
-      deleteWordRight,
-      backspace,
-      del,
-      insert,
-      undo,
-      redo,
-    ],
+    [newline, move, deleteWordLeft, deleteWordRight, backspace, del, insert],
   );
 
   const renderedVisualLines = useMemo(
@@ -1984,135 +1877,69 @@ export function useTextBuffer({
     dispatch({ type: 'move_to_offset', payload: { offset } });
   }, []);
 
-  const returnValue: TextBuffer = useMemo(
-    () => ({
-      lines,
-      text,
-      cursor: [cursorRow, cursorCol],
-      preferredCol,
-      selectionAnchor,
+  const returnValue: TextBuffer = {
+    lines,
+    text,
+    cursor: [cursorRow, cursorCol],
+    preferredCol,
+    selectionAnchor,
 
-      allVisualLines: visualLines,
-      viewportVisualLines: renderedVisualLines,
-      visualCursor,
-      visualScrollRow,
-      visualToLogicalMap,
+    allVisualLines: visualLines,
+    viewportVisualLines: renderedVisualLines,
+    visualCursor,
+    visualScrollRow,
 
-      setText,
-      insert,
-      newline,
-      backspace,
-      del,
-      move,
-      undo,
-      redo,
-      replaceRange,
-      replaceRangeByOffset,
-      moveToOffset,
-      deleteWordLeft,
-      deleteWordRight,
-
-      killLineRight,
-      killLineLeft,
-      handleInput,
-      openInExternalEditor,
-      // Vim-specific operations
-      vimDeleteWordForward,
-      vimDeleteWordBackward,
-      vimDeleteWordEnd,
-      vimChangeWordForward,
-      vimChangeWordBackward,
-      vimChangeWordEnd,
-      vimDeleteLine,
-      vimChangeLine,
-      vimDeleteToEndOfLine,
-      vimChangeToEndOfLine,
-      vimChangeMovement,
-      vimMoveLeft,
-      vimMoveRight,
-      vimMoveUp,
-      vimMoveDown,
-      vimMoveWordForward,
-      vimMoveWordBackward,
-      vimMoveWordEnd,
-      vimDeleteChar,
-      vimInsertAtCursor,
-      vimAppendAtCursor,
-      vimOpenLineBelow,
-      vimOpenLineAbove,
-      vimAppendAtLineEnd,
-      vimInsertAtLineStart,
-      vimMoveToLineStart,
-      vimMoveToLineEnd,
-      vimMoveToFirstNonWhitespace,
-      vimMoveToFirstLine,
-      vimMoveToLastLine,
-      vimMoveToLine,
-      vimEscapeInsertMode,
-    }),
-    [
-      lines,
-      text,
-      cursorRow,
-      cursorCol,
-      preferredCol,
-      selectionAnchor,
-      visualLines,
-      renderedVisualLines,
-      visualCursor,
-      visualScrollRow,
-      setText,
-      insert,
-      newline,
-      backspace,
-      del,
-      move,
-      undo,
-      redo,
-      replaceRange,
-      replaceRangeByOffset,
-      moveToOffset,
-      deleteWordLeft,
-      deleteWordRight,
-      killLineRight,
-      killLineLeft,
-      handleInput,
-      openInExternalEditor,
-      vimDeleteWordForward,
-      vimDeleteWordBackward,
-      vimDeleteWordEnd,
-      vimChangeWordForward,
-      vimChangeWordBackward,
-      vimChangeWordEnd,
-      vimDeleteLine,
-      vimChangeLine,
-      vimDeleteToEndOfLine,
-      vimChangeToEndOfLine,
-      vimChangeMovement,
-      vimMoveLeft,
-      vimMoveRight,
-      vimMoveUp,
-      vimMoveDown,
-      vimMoveWordForward,
-      vimMoveWordBackward,
-      vimMoveWordEnd,
-      vimDeleteChar,
-      vimInsertAtCursor,
-      vimAppendAtCursor,
-      vimOpenLineBelow,
-      vimOpenLineAbove,
-      vimAppendAtLineEnd,
-      vimInsertAtLineStart,
-      vimMoveToLineStart,
-      vimMoveToLineEnd,
-      vimMoveToFirstNonWhitespace,
-      vimMoveToFirstLine,
-      vimMoveToLastLine,
-      vimMoveToLine,
-      vimEscapeInsertMode,
-      visualToLogicalMap,
-    ],
-  );
+    setText,
+    insert,
+    newline,
+    backspace,
+    del,
+    move,
+    undo,
+    redo,
+    replaceRange,
+    replaceRangeByOffset,
+    moveToOffset,
+    deleteWordLeft,
+    deleteWordRight,
+    killLineRight,
+    killLineLeft,
+    handleInput,
+    openInExternalEditor,
+    // Vim-specific operations
+    vimDeleteWordForward,
+    vimDeleteWordBackward,
+    vimDeleteWordEnd,
+    vimChangeWordForward,
+    vimChangeWordBackward,
+    vimChangeWordEnd,
+    vimDeleteLine,
+    vimChangeLine,
+    vimDeleteToEndOfLine,
+    vimChangeToEndOfLine,
+    vimChangeMovement,
+    vimMoveLeft,
+    vimMoveRight,
+    vimMoveUp,
+    vimMoveDown,
+    vimMoveWordForward,
+    vimMoveWordBackward,
+    vimMoveWordEnd,
+    vimDeleteChar,
+    vimInsertAtCursor,
+    vimAppendAtCursor,
+    vimOpenLineBelow,
+    vimOpenLineAbove,
+    vimAppendAtLineEnd,
+    vimInsertAtLineStart,
+    vimMoveToLineStart,
+    vimMoveToLineEnd,
+    vimMoveToFirstNonWhitespace,
+    vimMoveToFirstLine,
+    vimMoveToLastLine,
+    vimMoveToLine,
+    vimEscapeInsertMode,
+  };
   return returnValue;
 }
 
@@ -2135,12 +1962,6 @@ export interface TextBuffer {
   viewportVisualLines: string[]; // The subset of visual lines to be rendered based on visualScrollRow and viewport.height
   visualCursor: [number, number]; // Visual cursor [row, col] relative to the start of all visualLines
   visualScrollRow: number; // Scroll position for visual lines (index of the first visible visual line)
-  /**
-   * For each visual line (by absolute index in allVisualLines) provides a tuple
-   * [logicalLineIndex, startColInLogical] that maps where that visual line
-   * begins within the logical buffer. Indices are code-point based.
-   */
-  visualToLogicalMap: Array<[number, number]>;
 
   // Actions
 
@@ -2190,7 +2011,6 @@ export interface TextBuffer {
    * follows the caret and the next contiguous run of word characters.
    */
   deleteWordRight: () => void;
-
   /**
    * Deletes text from the cursor to the end of the current line.
    */

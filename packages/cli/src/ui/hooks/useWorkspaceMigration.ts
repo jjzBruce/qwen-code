@@ -20,8 +20,7 @@ export function useWorkspaceMigration(settings: LoadedSettings) {
   );
 
   useEffect(() => {
-    // Default to true if not set.
-    if (!(settings.merged.experimental?.extensionManagement ?? true)) {
+    if (!settings.merged.experimental?.extensionManagement) {
       return;
     }
     const cwd = process.cwd();

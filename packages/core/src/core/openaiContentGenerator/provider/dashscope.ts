@@ -2,11 +2,7 @@ import OpenAI from 'openai';
 import type { Config } from '../../../config/config.js';
 import type { ContentGeneratorConfig } from '../../contentGenerator.js';
 import { AuthType } from '../../contentGenerator.js';
-import {
-  DEFAULT_TIMEOUT,
-  DEFAULT_MAX_RETRIES,
-  DEFAULT_DASHSCOPE_BASE_URL,
-} from '../constants.js';
+import { DEFAULT_TIMEOUT, DEFAULT_MAX_RETRIES } from '../constants.js';
 import { tokenLimit } from '../../tokenLimits.js';
 import type {
   OpenAICompatibleProvider,
@@ -57,7 +53,7 @@ export class DashScopeOpenAICompatibleProvider
   buildClient(): OpenAI {
     const {
       apiKey,
-      baseUrl = DEFAULT_DASHSCOPE_BASE_URL,
+      baseUrl,
       timeout = DEFAULT_TIMEOUT,
       maxRetries = DEFAULT_MAX_RETRIES,
     } = this.contentGeneratorConfig;

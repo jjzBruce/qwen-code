@@ -9,13 +9,6 @@ import { render } from 'ink-testing-library';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QwenOAuthProgress } from './QwenOAuthProgress.js';
 import type { DeviceAuthorizationInfo } from '../hooks/useQwenAuth.js';
-import { useKeypress } from '../hooks/useKeypress.js';
-import type { Key } from '../contexts/KeypressContext.js';
-
-// Mock useKeypress hook
-vi.mock('../hooks/useKeypress.js', () => ({
-  useKeypress: vi.fn(),
-}));
 
 // Mock qrcode-terminal module
 vi.mock('qrcode-terminal', () => ({
@@ -38,8 +31,6 @@ vi.mock('ink-link', () => ({
 describe('QwenOAuthProgress', () => {
   const mockOnTimeout = vi.fn();
   const mockOnCancel = vi.fn();
-  const mockedUseKeypress = vi.mocked(useKeypress);
-  let keypressHandler: ((key: Key) => void) | null = null;
 
   const createMockDeviceAuth = (
     overrides: Partial<DeviceAuthorizationInfo> = {},
@@ -77,12 +68,6 @@ describe('QwenOAuthProgress', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    keypressHandler = null;
-
-    // Mock useKeypress to capture the handler
-    mockedUseKeypress.mockImplementation((handler) => {
-      keypressHandler = handler;
-    });
   });
 
   afterEach(() => {
@@ -96,7 +81,7 @@ describe('QwenOAuthProgress', () => {
       const output = lastFrame();
       expect(output).toContain('MockSpinner(dots)');
       expect(output).toContain('Waiting for Qwen OAuth authentication...');
-      expect(output).toContain('(Press ESC or CTRL+C to cancel)');
+      expect(output).toContain('(Press ESC to cancel)');
     });
 
     it('should render loading state with gray border', () => {
@@ -120,7 +105,7 @@ describe('QwenOAuthProgress', () => {
       expect(output).toContain('MockSpinner(dots)');
       expect(output).toContain('Waiting for authorization');
       expect(output).toContain('Time remaining: 5:00');
-      expect(output).toContain('(Press ESC or CTRL+C to cancel)');
+      expect(output).toContain('(Press ESC to cancel)');
     });
 
     it('should display correct URL in Static component when QR code is generated', async () => {
@@ -434,7 +419,7 @@ describe('QwenOAuthProgress', () => {
 
   describe('User interactions', () => {
     it('should call onCancel when ESC key is pressed', () => {
-      render(
+      const { stdin } = render(
         <QwenOAuthProgress
           onTimeout={mockOnTimeout}
           onCancel={mockOnCancel}
@@ -443,42 +428,24 @@ describe('QwenOAuthProgress', () => {
       );
 
       // Simulate ESC key press
-      if (keypressHandler) {
-        keypressHandler({
-          name: 'escape',
-          ctrl: false,
-          meta: false,
-          shift: false,
-          paste: false,
-          sequence: '\u001b',
-        });
-      }
+      stdin.write('\u001b'); // ESC character
 
       expect(mockOnCancel).toHaveBeenCalledTimes(1);
     });
 
     it('should call onCancel when ESC is pressed in loading state', () => {
-      render(
+      const { stdin } = render(
         <QwenOAuthProgress onTimeout={mockOnTimeout} onCancel={mockOnCancel} />,
       );
 
       // Simulate ESC key press
-      if (keypressHandler) {
-        keypressHandler({
-          name: 'escape',
-          ctrl: false,
-          meta: false,
-          shift: false,
-          paste: false,
-          sequence: '\u001b',
-        });
-      }
+      stdin.write('\u001b'); // ESC character
 
       expect(mockOnCancel).toHaveBeenCalledTimes(1);
     });
 
     it('should not call onCancel for other key presses', () => {
-      render(
+      const { stdin } = render(
         <QwenOAuthProgress
           onTimeout={mockOnTimeout}
           onCancel={mockOnCancel}
@@ -487,32 +454,9 @@ describe('QwenOAuthProgress', () => {
       );
 
       // Simulate other key presses
-      if (keypressHandler) {
-        keypressHandler({
-          name: 'a',
-          ctrl: false,
-          meta: false,
-          shift: false,
-          paste: false,
-          sequence: 'a',
-        });
-        keypressHandler({
-          name: 'return',
-          ctrl: false,
-          meta: false,
-          shift: false,
-          paste: false,
-          sequence: '\r',
-        });
-        keypressHandler({
-          name: 'space',
-          ctrl: false,
-          meta: false,
-          shift: false,
-          paste: false,
-          sequence: ' ',
-        });
-      }
+      stdin.write('a');
+      stdin.write('\r'); // Enter
+      stdin.write(' '); // Space
 
       expect(mockOnCancel).not.toHaveBeenCalled();
     });
@@ -585,35 +529,17 @@ describe('QwenOAuthProgress', () => {
     });
 
     it('should call onCancel for any key press in timeout state', () => {
-      renderComponent({
+      const { stdin } = renderComponent({
         authStatus: 'timeout',
       });
 
       // Simulate any key press
-      if (keypressHandler) {
-        keypressHandler({
-          name: 'a',
-          ctrl: false,
-          meta: false,
-          shift: false,
-          paste: false,
-          sequence: 'a',
-        });
-      }
+      stdin.write('a');
       expect(mockOnCancel).toHaveBeenCalledTimes(1);
 
       // Reset mock and try enter key
       mockOnCancel.mockClear();
-      if (keypressHandler) {
-        keypressHandler({
-          name: 'return',
-          ctrl: false,
-          meta: false,
-          shift: false,
-          paste: false,
-          sequence: '\r',
-        });
-      }
+      stdin.write('\r');
       expect(mockOnCancel).toHaveBeenCalledTimes(1);
     });
   });

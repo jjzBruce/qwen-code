@@ -17,12 +17,6 @@ export default defineConfig({
     include: ['**/*.test.ts'],
     exclude: ['**/terminal-bench/*.test.ts', '**/node_modules/**'],
     retry: 2,
-    fileParallelism: true,
-    poolOptions: {
-      threads: {
-        minThreads: 2,
-        maxThreads: 4,
-      },
-    },
+    fileParallelism: false,
   },
 });

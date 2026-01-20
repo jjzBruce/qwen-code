@@ -4,34 +4,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Mock } from 'vitest';
-import { executeToolCall } from './nonInteractiveToolExecutor.js';
-import type {
-  ToolRegistry,
-  ToolCallRequestInfo,
-  ToolResult,
-  Config,
-} from '../index.js';
-import {
-  DEFAULT_TRUNCATE_TOOL_OUTPUT_LINES,
-  DEFAULT_TRUNCATE_TOOL_OUTPUT_THRESHOLD,
-  ToolErrorType,
-  ApprovalMode,
-} from '../index.js';
 import type { Part } from '@google/genai';
-import { MockTool } from '../test-utils/mock-tool.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  Config,
+  ToolCallRequestInfo,
+  ToolRegistry,
+  ToolResult,
+} from '../index.js';
+import { ApprovalMode, ToolErrorType } from '../index.js';
+import { MockTool } from '../test-utils/tools.js';
+import { executeToolCall } from './nonInteractiveToolExecutor.js';
 
 describe('executeToolCall', () => {
   let mockToolRegistry: ToolRegistry;
   let mockTool: MockTool;
-  let executeFn: Mock;
   let abortController: AbortController;
   let mockConfig: Config;
 
   beforeEach(() => {
-    executeFn = vi.fn();
-    mockTool = new MockTool({ name: 'testTool', execute: executeFn });
+    mockTool = new MockTool();
 
     mockToolRegistry = {
       getTool: vi.fn(),
@@ -49,19 +41,6 @@ describe('executeToolCall', () => {
         model: 'test-model',
         authType: 'oauth-personal',
       }),
-      getShellExecutionConfig: () => ({
-        terminalWidth: 90,
-        terminalHeight: 30,
-      }),
-      storage: {
-        getProjectTempDir: () => '/tmp',
-      },
-      getTruncateToolOutputThreshold: () =>
-        DEFAULT_TRUNCATE_TOOL_OUTPUT_THRESHOLD,
-      getTruncateToolOutputLines: () => DEFAULT_TRUNCATE_TOOL_OUTPUT_LINES,
-      getUseSmartEdit: () => false,
-      getUseModelRouter: () => false,
-      getGeminiClient: () => null, // No client needed for these tests
     } as unknown as Config;
 
     abortController = new AbortController();
@@ -80,7 +59,7 @@ describe('executeToolCall', () => {
       returnDisplay: 'Success!',
     };
     vi.mocked(mockToolRegistry.getTool).mockReturnValue(mockTool);
-    executeFn.mockResolvedValue(toolResult);
+    mockTool.executeFn.mockReturnValue(toolResult);
 
     const response = await executeToolCall(
       mockConfig,
@@ -89,17 +68,12 @@ describe('executeToolCall', () => {
     );
 
     expect(mockToolRegistry.getTool).toHaveBeenCalledWith('testTool');
-    expect(executeFn).toHaveBeenCalledWith(request.args);
+    expect(mockTool.executeFn).toHaveBeenCalledWith(request.args);
     expect(response).toStrictEqual({
       callId: 'call1',
       error: undefined,
       errorType: undefined,
-      outputFile: undefined,
       resultDisplay: 'Success!',
-      contentLength:
-        typeof toolResult.llmContent === 'string'
-          ? toolResult.llmContent.length
-          : undefined,
       responseParts: [
         {
           functionResponse: {
@@ -139,7 +113,6 @@ describe('executeToolCall', () => {
       error: new Error(expectedErrorMessage),
       errorType: ToolErrorType.TOOL_NOT_REGISTERED,
       resultDisplay: expectedErrorMessage,
-      contentLength: expectedErrorMessage.length,
       responseParts: [
         {
           functionResponse: {
@@ -188,7 +161,6 @@ describe('executeToolCall', () => {
         },
       ],
       resultDisplay: 'Invalid parameters',
-      contentLength: 'Invalid parameters'.length,
     });
   });
 
@@ -209,7 +181,7 @@ describe('executeToolCall', () => {
       },
     };
     vi.mocked(mockToolRegistry.getTool).mockReturnValue(mockTool);
-    executeFn.mockResolvedValue(executionErrorResult);
+    mockTool.executeFn.mockReturnValue(executionErrorResult);
 
     const response = await executeToolCall(
       mockConfig,
@@ -232,7 +204,6 @@ describe('executeToolCall', () => {
         },
       ],
       resultDisplay: 'Execution failed',
-      contentLength: 'Execution failed'.length,
     });
   });
 
@@ -245,7 +216,9 @@ describe('executeToolCall', () => {
       prompt_id: 'prompt-id-5',
     };
     vi.mocked(mockToolRegistry.getTool).mockReturnValue(mockTool);
-    executeFn.mockRejectedValue(new Error('Something went very wrong'));
+    mockTool.executeFn.mockImplementation(() => {
+      throw new Error('Something went very wrong');
+    });
 
     const response = await executeToolCall(
       mockConfig,
@@ -258,7 +231,6 @@ describe('executeToolCall', () => {
       error: new Error('Something went very wrong'),
       errorType: ToolErrorType.UNHANDLED_EXCEPTION,
       resultDisplay: 'Something went very wrong',
-      contentLength: 'Something went very wrong'.length,
       responseParts: [
         {
           functionResponse: {
@@ -287,7 +259,7 @@ describe('executeToolCall', () => {
       returnDisplay: 'Image processed',
     };
     vi.mocked(mockToolRegistry.getTool).mockReturnValue(mockTool);
-    executeFn.mockResolvedValue(toolResult);
+    mockTool.executeFn.mockReturnValue(toolResult);
 
     const response = await executeToolCall(
       mockConfig,
@@ -299,9 +271,7 @@ describe('executeToolCall', () => {
       callId: 'call6',
       error: undefined,
       errorType: undefined,
-      outputFile: undefined,
       resultDisplay: 'Image processed',
-      contentLength: undefined,
       responseParts: [
         {
           functionResponse: {
@@ -315,57 +285,5 @@ describe('executeToolCall', () => {
         imageDataPart,
       ],
     });
-  });
-
-  it('should calculate contentLength for a string llmContent', async () => {
-    const request: ToolCallRequestInfo = {
-      callId: 'call7',
-      name: 'testTool',
-      args: {},
-      isClientInitiated: false,
-      prompt_id: 'prompt-id-7',
-    };
-    const toolResult: ToolResult = {
-      llmContent: 'This is a test string.',
-      returnDisplay: 'String returned',
-    };
-    vi.mocked(mockToolRegistry.getTool).mockReturnValue(mockTool);
-    executeFn.mockResolvedValue(toolResult);
-
-    const response = await executeToolCall(
-      mockConfig,
-      request,
-      abortController.signal,
-    );
-
-    expect(response.contentLength).toBe(
-      typeof toolResult.llmContent === 'string'
-        ? toolResult.llmContent.length
-        : undefined,
-    );
-  });
-
-  it('should have undefined contentLength for array llmContent with no string parts', async () => {
-    const request: ToolCallRequestInfo = {
-      callId: 'call8',
-      name: 'testTool',
-      args: {},
-      isClientInitiated: false,
-      prompt_id: 'prompt-id-8',
-    };
-    const toolResult: ToolResult = {
-      llmContent: [{ inlineData: { mimeType: 'image/png', data: 'fakedata' } }],
-      returnDisplay: 'Image data returned',
-    };
-    vi.mocked(mockToolRegistry.getTool).mockReturnValue(mockTool);
-    executeFn.mockResolvedValue(toolResult);
-
-    const response = await executeToolCall(
-      mockConfig,
-      request,
-      abortController.signal,
-    );
-
-    expect(response.contentLength).toBeUndefined();
   });
 });

@@ -24,7 +24,7 @@ export const clearCommand: SlashCommand = {
       context.ui.setDebugMessage('Clearing terminal.');
     }
 
-    uiTelemetryService.setLastPromptTokenCount(0);
+    uiTelemetryService.resetLastPromptTokenCount();
     context.ui.clear();
   },
 };

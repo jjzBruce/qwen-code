@@ -7,7 +7,7 @@
 import {
   IdeDiffAcceptedNotificationSchema,
   IdeDiffClosedNotificationSchema,
-} from '@qwen-code/qwen-code-core/src/ide/types.js';
+} from '@qwen-code/qwen-code-core';
 import { type JSONRPCNotification } from '@modelcontextprotocol/sdk/types.js';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
@@ -132,7 +132,7 @@ export class DiffManager {
   /**
    * Closes an open diff view for a specific file.
    */
-  async closeDiff(filePath: string, suppressNotification = false) {
+  async closeDiff(filePath: string) {
     let uriToClose: vscode.Uri | undefined;
     for (const [uriString, diffInfo] of this.diffDocuments.entries()) {
       if (diffInfo.originalFilePath === filePath) {
@@ -145,18 +145,16 @@ export class DiffManager {
       const rightDoc = await vscode.workspace.openTextDocument(uriToClose);
       const modifiedContent = rightDoc.getText();
       await this.closeDiffEditor(uriToClose);
-      if (!suppressNotification) {
-        this.onDidChangeEmitter.fire(
-          IdeDiffClosedNotificationSchema.parse({
-            jsonrpc: '2.0',
-            method: 'ide/diffClosed',
-            params: {
-              filePath,
-              content: modifiedContent,
-            },
-          }),
-        );
-      }
+      this.onDidChangeEmitter.fire(
+        IdeDiffClosedNotificationSchema.parse({
+          jsonrpc: '2.0',
+          method: 'ide/diffClosed',
+          params: {
+            filePath,
+            content: modifiedContent,
+          },
+        }),
+      );
       return modifiedContent;
     }
     return;

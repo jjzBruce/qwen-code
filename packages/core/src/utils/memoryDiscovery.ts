@@ -9,12 +9,14 @@ import * as fsSync from 'node:fs';
 import * as path from 'node:path';
 import { homedir } from 'node:os';
 import { bfsFileSearch } from './bfsFileSearch.js';
-import { getAllGeminiMdFilenames } from '../tools/memoryTool.js';
+import {
+  GEMINI_CONFIG_DIR,
+  getAllGeminiMdFilenames,
+} from '../tools/memoryTool.js';
 import type { FileDiscoveryService } from '../services/fileDiscoveryService.js';
 import { processImports } from './memoryImportProcessor.js';
-import type { FileFilteringOptions } from '../config/constants.js';
-import { DEFAULT_MEMORY_FILE_FILTERING_OPTIONS } from '../config/constants.js';
-import { QWEN_DIR } from './paths.js';
+import type { FileFilteringOptions } from '../config/config.js';
+import { DEFAULT_MEMORY_FILE_FILTERING_OPTIONS } from '../config/config.js';
 
 // Simple console logger, similar to the one previously in CLI's config.ts
 // TODO: Integrate with a more robust server-side logger if available/appropriate.
@@ -85,7 +87,6 @@ async function getGeminiMdFilePathsInternal(
   debugMode: boolean,
   fileService: FileDiscoveryService,
   extensionContextFilePaths: string[] = [],
-  folderTrust: boolean,
   fileFilteringOptions: FileFilteringOptions,
   maxDirs: number,
 ): Promise<string[]> {
@@ -108,7 +109,6 @@ async function getGeminiMdFilePathsInternal(
         debugMode,
         fileService,
         extensionContextFilePaths,
-        folderTrust,
         fileFilteringOptions,
         maxDirs,
       ),
@@ -138,7 +138,6 @@ async function getGeminiMdFilePathsInternalForEachDir(
   debugMode: boolean,
   fileService: FileDiscoveryService,
   extensionContextFilePaths: string[] = [],
-  folderTrust: boolean,
   fileFilteringOptions: FileFilteringOptions,
   maxDirs: number,
 ): Promise<string[]> {
@@ -149,7 +148,7 @@ async function getGeminiMdFilePathsInternalForEachDir(
     const resolvedHome = path.resolve(userHomePath);
     const globalMemoryPath = path.join(
       resolvedHome,
-      QWEN_DIR,
+      GEMINI_CONFIG_DIR,
       geminiMdFilename,
     );
 
@@ -184,7 +183,7 @@ async function getGeminiMdFilePathsInternalForEachDir(
       } catch {
         // Not found, which is okay
       }
-    } else if (dir && folderTrust) {
+    } else if (dir) {
       // FIX: Only perform the workspace search (upward and downward scans)
       // if a valid currentWorkingDirectory is provided and it's not the home directory.
       const resolvedCwd = path.resolve(dir);
@@ -204,7 +203,7 @@ async function getGeminiMdFilePathsInternalForEachDir(
         : path.dirname(resolvedHome);
 
       while (currentDir && currentDir !== path.dirname(currentDir)) {
-        if (currentDir === path.join(resolvedHome, QWEN_DIR)) {
+        if (currentDir === path.join(resolvedHome, GEMINI_CONFIG_DIR)) {
           break;
         }
 
@@ -226,7 +225,7 @@ async function getGeminiMdFilePathsInternalForEachDir(
       }
       upwardPaths.forEach((p) => allPaths.add(p));
 
-      const mergedOptions: FileFilteringOptions = {
+      const mergedOptions = {
         ...DEFAULT_MEMORY_FILE_FILTERING_OPTIONS,
         ...fileFilteringOptions,
       };
@@ -347,11 +346,6 @@ function concatenateInstructions(
     .join('\n\n');
 }
 
-export interface LoadServerHierarchicalMemoryResponse {
-  memoryContent: string;
-  fileCount: number;
-}
-
 /**
  * Loads hierarchical QWEN.md files and concatenates their content.
  * This function is intended for use by the server.
@@ -362,11 +356,10 @@ export async function loadServerHierarchicalMemory(
   debugMode: boolean,
   fileService: FileDiscoveryService,
   extensionContextFilePaths: string[] = [],
-  folderTrust: boolean,
   importFormat: 'flat' | 'tree' = 'tree',
   fileFilteringOptions?: FileFilteringOptions,
   maxDirs: number = 200,
-): Promise<LoadServerHierarchicalMemoryResponse> {
+): Promise<{ memoryContent: string; fileCount: number }> {
   if (debugMode)
     logger.debug(
       `Loading server hierarchical memory for CWD: ${currentWorkingDirectory} (importFormat: ${importFormat})`,
@@ -382,7 +375,6 @@ export async function loadServerHierarchicalMemory(
     debugMode,
     fileService,
     extensionContextFilePaths,
-    folderTrust,
     fileFilteringOptions || DEFAULT_MEMORY_FILE_FILTERING_OPTIONS,
     maxDirs,
   );

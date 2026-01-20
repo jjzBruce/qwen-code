@@ -17,12 +17,11 @@ import {
   processSingleFileContent,
   DEFAULT_ENCODING,
   getSpecificMimeType,
+  DEFAULT_MAX_LINES_TEXT_FILE,
 } from '../utils/fileUtils.js';
 import type { PartListUnion } from '@google/genai';
-import {
-  type Config,
-  DEFAULT_FILE_FILTERING_OPTIONS,
-} from '../config/config.js';
+import type { Config } from '../config/config.js';
+import { DEFAULT_FILE_FILTERING_OPTIONS } from '../config/config.js';
 import { FileOperation } from '../telemetry/metrics.js';
 import { getProgrammingLanguage } from '../telemetry/telemetry-utils.js';
 import { logFileOperation } from '../telemetry/loggers.js';
@@ -72,7 +71,7 @@ export interface ReadManyFilesParams {
    */
   file_filtering_options?: {
     respect_git_ignore?: boolean;
-    respect_qwen_ignore?: boolean;
+    respect_gemini_ignore?: boolean;
   };
 }
 
@@ -97,7 +96,7 @@ type FileProcessingResult =
 
 /**
  * Creates the default exclusion patterns including dynamic patterns.
- * This combines the shared patterns with dynamic patterns like QWEN.md.
+ * This combines the shared patterns with dynamic patterns like GEMINI.md.
  * TODO(adh): Consider making this configurable or extendable through a command line argument.
  */
 function getDefaultExcludes(config?: Config): string[] {
@@ -129,17 +128,17 @@ ${this.config.getTargetDir()}
     // Determine the final list of exclusion patterns exactly as in execute method
     const paramExcludes = this.params.exclude || [];
     const paramUseDefaultExcludes = this.params.useDefaultExcludes !== false;
-    const qwenIgnorePatterns = this.config
+    const geminiIgnorePatterns = this.config
       .getFileService()
-      .getQwenIgnorePatterns();
+      .getGeminiIgnorePatterns();
     const finalExclusionPatternsForDescription: string[] =
       paramUseDefaultExcludes
         ? [
             ...getDefaultExcludes(this.config),
             ...paramExcludes,
-            ...qwenIgnorePatterns,
+            ...geminiIgnorePatterns,
           ]
-        : [...paramExcludes, ...qwenIgnorePatterns];
+        : [...paramExcludes, ...geminiIgnorePatterns];
 
     let excludeDesc = `Excluding: ${
       finalExclusionPatternsForDescription.length > 0
@@ -153,8 +152,8 @@ ${finalExclusionPatternsForDescription
     }`;
 
     // Add a note if .qwenignore patterns contributed to the final list of exclusions
-    if (qwenIgnorePatterns.length > 0) {
-      const geminiPatternsInEffect = qwenIgnorePatterns.filter((p) =>
+    if (geminiIgnorePatterns.length > 0) {
+      const geminiPatternsInEffect = geminiIgnorePatterns.filter((p) =>
         finalExclusionPatternsForDescription.includes(p),
       ).length;
       if (geminiPatternsInEffect > 0) {
@@ -175,6 +174,20 @@ ${finalExclusionPatternsForDescription
       exclude = [],
       useDefaultExcludes = true,
     } = this.params;
+
+    const defaultFileIgnores =
+      this.config.getFileFilteringOptions() ?? DEFAULT_FILE_FILTERING_OPTIONS;
+
+    const fileFilteringOptions = {
+      respectGitIgnore:
+        this.params.file_filtering_options?.respect_git_ignore ??
+        defaultFileIgnores.respectGitIgnore, // Use the property from the returned object
+      respectGeminiIgnore:
+        this.params.file_filtering_options?.respect_gemini_ignore ??
+        defaultFileIgnores.respectGeminiIgnore, // Use the property from the returned object
+    };
+    // Get centralized file discovery service
+    const fileDiscovery = this.config.getFileService();
 
     const filesToConsider = new Set<string>();
     const skippedFiles: Array<{ path: string; reason: string }> = [];
@@ -216,37 +229,71 @@ ${finalExclusionPatternsForDescription
           allEntries.add(entry);
         }
       }
-      const relativeEntries = Array.from(allEntries).map((p) =>
-        path.relative(this.config.getTargetDir(), p),
-      );
+      const entries = Array.from(allEntries);
 
-      const fileDiscovery = this.config.getFileService();
-      const { filteredPaths, gitIgnoredCount, qwenIgnoredCount } =
-        fileDiscovery.filterFilesWithReport(relativeEntries, {
-          respectGitIgnore:
-            this.params.file_filtering_options?.respect_git_ignore ??
-            this.config.getFileFilteringOptions().respectGitIgnore ??
-            DEFAULT_FILE_FILTERING_OPTIONS.respectGitIgnore,
-          respectQwenIgnore:
-            this.params.file_filtering_options?.respect_qwen_ignore ??
-            this.config.getFileFilteringOptions().respectQwenIgnore ??
-            DEFAULT_FILE_FILTERING_OPTIONS.respectQwenIgnore,
-        });
+      const gitFilteredEntries = fileFilteringOptions.respectGitIgnore
+        ? fileDiscovery
+            .filterFiles(
+              entries.map((p) => path.relative(this.config.getTargetDir(), p)),
+              {
+                respectGitIgnore: true,
+                respectGeminiIgnore: false,
+              },
+            )
+            .map((p) => path.resolve(this.config.getTargetDir(), p))
+        : entries;
 
-      for (const relativePath of filteredPaths) {
+      // Apply gemini ignore filtering if enabled
+      const finalFilteredEntries = fileFilteringOptions.respectGeminiIgnore
+        ? fileDiscovery
+            .filterFiles(
+              gitFilteredEntries.map((p) =>
+                path.relative(this.config.getTargetDir(), p),
+              ),
+              {
+                respectGitIgnore: false,
+                respectGeminiIgnore: true,
+              },
+            )
+            .map((p) => path.resolve(this.config.getTargetDir(), p))
+        : gitFilteredEntries;
+
+      let gitIgnoredCount = 0;
+      let geminiIgnoredCount = 0;
+
+      for (const absoluteFilePath of entries) {
         // Security check: ensure the glob library didn't return something outside the workspace.
-
-        const fullPath = path.resolve(this.config.getTargetDir(), relativePath);
         if (
-          !this.config.getWorkspaceContext().isPathWithinWorkspace(fullPath)
+          !this.config
+            .getWorkspaceContext()
+            .isPathWithinWorkspace(absoluteFilePath)
         ) {
           skippedFiles.push({
-            path: fullPath,
-            reason: `Security: Glob library returned path outside workspace. Path: ${fullPath}`,
+            path: absoluteFilePath,
+            reason: `Security: Glob library returned path outside workspace. Path: ${absoluteFilePath}`,
           });
           continue;
         }
-        filesToConsider.add(fullPath);
+
+        // Check if this file was filtered out by git ignore
+        if (
+          fileFilteringOptions.respectGitIgnore &&
+          !gitFilteredEntries.includes(absoluteFilePath)
+        ) {
+          gitIgnoredCount++;
+          continue;
+        }
+
+        // Check if this file was filtered out by gemini ignore
+        if (
+          fileFilteringOptions.respectGeminiIgnore &&
+          !finalFilteredEntries.includes(absoluteFilePath)
+        ) {
+          geminiIgnoredCount++;
+          continue;
+        }
+
+        filesToConsider.add(absoluteFilePath);
       }
 
       // Add info about git-ignored files if any were filtered
@@ -257,11 +304,11 @@ ${finalExclusionPatternsForDescription
         });
       }
 
-      // Add info about qwen-ignored files if any were filtered
-      if (qwenIgnoredCount > 0) {
+      // Add info about gemini-ignored files if any were filtered
+      if (geminiIgnoredCount > 0) {
         skippedFiles.push({
-          path: `${qwenIgnoredCount} file(s)`,
-          reason: 'qwen ignored',
+          path: `${geminiIgnoredCount} file(s)`,
+          reason: 'gemini ignored',
         });
       }
     } catch (error) {
@@ -277,10 +324,8 @@ ${finalExclusionPatternsForDescription
     }
 
     const sortedFiles = Array.from(filesToConsider).sort();
-    const truncateToolOutputLines = this.config.getTruncateToolOutputLines();
-    const file_line_limit = Number.isFinite(truncateToolOutputLines)
-      ? Math.floor(truncateToolOutputLines / Math.max(1, sortedFiles.length))
-      : undefined;
+    const file_line_limit =
+      DEFAULT_MAX_LINES_TEXT_FILE / Math.max(1, sortedFiles.length);
 
     const fileProcessingPromises = sortedFiles.map(
       async (filePath): Promise<FileProcessingResult> => {
@@ -317,7 +362,8 @@ ${finalExclusionPatternsForDescription
           // Use processSingleFileContent for all file types now
           const fileReadResult = await processSingleFileContent(
             filePath,
-            this.config,
+            this.config.getTargetDir(),
+            this.config.getFileSystemService(),
             0,
             file_line_limit,
           );
@@ -376,12 +422,9 @@ ${finalExclusionPatternsForDescription
             );
             let fileContentForLlm = '';
             if (fileReadResult.isTruncated) {
-              const [start, end] = fileReadResult.linesShown!;
-              const total = fileReadResult.originalLineCount!;
-              fileContentForLlm = `Showing lines ${start}-${end} of ${total} total lines.\n---\n${fileReadResult.llmContent}`;
-            } else {
-              fileContentForLlm = fileReadResult.llmContent;
+              fileContentForLlm += `[WARNING: This file was truncated. To view the full content, use the 'read_file' tool on this specific file.]\n\n`;
             }
+            fileContentForLlm += fileReadResult.llmContent;
             contentParts.push(`${separator}\n\n${fileContentForLlm}\n\n`);
           } else {
             // This is a Part for image/pdf, which we don't add the separator to.
@@ -406,6 +449,7 @@ ${finalExclusionPatternsForDescription
               lines,
               mimetype,
               path.extname(filePath),
+              undefined,
               programming_language,
             ),
           );
@@ -541,7 +585,7 @@ export class ReadManyFilesTool extends BaseDeclarativeTool<
                 'Optional: Whether to respect .gitignore patterns when listing files. Only available in git repositories. Defaults to true.',
               type: 'boolean',
             },
-            respect_qwen_ignore: {
+            respect_gemini_ignore: {
               description:
                 'Optional: Whether to respect .qwenignore patterns when listing files. Defaults to true.',
               type: 'boolean',

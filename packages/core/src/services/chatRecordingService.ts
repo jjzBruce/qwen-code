@@ -6,15 +6,12 @@
 
 import { type Config } from '../config/config.js';
 import { type Status } from '../core/coreToolScheduler.js';
-import { type ThoughtSummary } from '../utils/thoughtUtils.js';
+import { type ThoughtSummary } from '../core/turn.js';
 import { getProjectHash } from '../utils/paths.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import type {
-  PartListUnion,
-  GenerateContentResponseUsageMetadata,
-} from '@google/genai';
+import type { PartListUnion } from '@google/genai';
 
 /**
  * Token usage summary for a message or conversation.
@@ -34,7 +31,7 @@ export interface TokensSummary {
 export interface BaseMessageRecord {
   id: string;
   timestamp: string;
-  content: PartListUnion;
+  content: string;
 }
 
 /**
@@ -62,7 +59,7 @@ export type ConversationRecordExtra =
       type: 'user';
     }
   | {
-      type: 'qwen';
+      type: 'gemini';
       toolCalls?: ToolCallRecord[];
       thoughts?: Array<ThoughtSummary & { timestamp: string }>;
       tokens?: TokensSummary | null;
@@ -102,7 +99,7 @@ export interface ResumedSessionData {
  * - Token usage statistics
  * - Assistant thoughts and reasoning
  *
- * Sessions are stored as JSON files in ~/.qwen/tmp/<project_hash>/chats/
+ * Sessions are stored as JSON files in ~/.gemini/tmp/<project_hash>/chats/
  */
 export class ChatRecordingService {
   private conversationFile: string | null = null;
@@ -181,7 +178,7 @@ export class ChatRecordingService {
 
   private newMessage(
     type: ConversationRecordExtra['type'],
-    content: PartListUnion,
+    content: string,
   ): MessageRecord {
     return {
       id: randomUUID(),
@@ -195,22 +192,31 @@ export class ChatRecordingService {
    * Records a message in the conversation.
    */
   recordMessage(message: {
-    model: string;
     type: ConversationRecordExtra['type'];
-    content: PartListUnion;
+    content: string;
+    append?: boolean;
   }): void {
     if (!this.conversationFile) return;
 
     try {
       this.updateConversation((conversation) => {
+        if (message.append) {
+          const lastMsg = this.getLastMessage(conversation);
+          if (lastMsg && lastMsg.type === message.type) {
+            lastMsg.content += message.content;
+            return;
+          }
+        }
+        // We're not appending, or we are appending but the last message's type is not the same as
+        // the specified type, so just create a new message.
         const msg = this.newMessage(message.type, message.content);
-        if (msg.type === 'qwen') {
+        if (msg.type === 'gemini') {
           // If it's a new Gemini message then incorporate any queued thoughts.
           conversation.messages.push({
             ...msg,
             thoughts: this.queuedThoughts,
             tokens: this.queuedTokens,
-            model: message.model,
+            model: this.config.getModel(),
           });
           this.queuedThoughts = [];
           this.queuedTokens = null;
@@ -237,33 +243,32 @@ export class ChatRecordingService {
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
-      console.error('Error saving thought:', error);
-      throw error;
+      if (this.config.getDebugMode()) {
+        console.error('Error saving thought:', error);
+        throw error;
+      }
     }
   }
 
   /**
    * Updates the tokens for the last message in the conversation (which should be by Gemini).
    */
-  recordMessageTokens(
-    respUsageMetadata: GenerateContentResponseUsageMetadata,
-  ): void {
+  recordMessageTokens(tokens: {
+    input: number;
+    output: number;
+    cached: number;
+    thoughts?: number;
+    tool?: number;
+    total: number;
+  }): void {
     if (!this.conversationFile) return;
 
     try {
-      const tokens = {
-        input: respUsageMetadata.promptTokenCount ?? 0,
-        output: respUsageMetadata.candidatesTokenCount ?? 0,
-        cached: respUsageMetadata.cachedContentTokenCount ?? 0,
-        thoughts: respUsageMetadata.thoughtsTokenCount ?? 0,
-        tool: respUsageMetadata.toolUsePromptTokenCount ?? 0,
-        total: respUsageMetadata.totalTokenCount ?? 0,
-      };
       this.updateConversation((conversation) => {
         const lastMsg = this.getLastMessage(conversation);
         // If the last message already has token info, it's because this new token info is for a
         // new message that hasn't been recorded yet.
-        if (lastMsg && lastMsg.type === 'qwen' && !lastMsg.tokens) {
+        if (lastMsg && lastMsg.type === 'gemini' && !lastMsg.tokens) {
           lastMsg.tokens = tokens;
           this.queuedTokens = null;
         } else {
@@ -278,22 +283,9 @@ export class ChatRecordingService {
 
   /**
    * Adds tool calls to the last message in the conversation (which should be by Gemini).
-   * This method enriches tool calls with metadata from the ToolRegistry.
    */
-  recordToolCalls(model: string, toolCalls: ToolCallRecord[]): void {
+  recordToolCalls(toolCalls: ToolCallRecord[]): void {
     if (!this.conversationFile) return;
-
-    // Enrich tool calls with metadata from the ToolRegistry
-    const toolRegistry = this.config.getToolRegistry();
-    const enrichedToolCalls = toolCalls.map((toolCall) => {
-      const toolInstance = toolRegistry.getTool(toolCall.name);
-      return {
-        ...toolCall,
-        displayName: toolInstance?.displayName || toolCall.name,
-        description: toolInstance?.description || '',
-        renderOutputAsMarkdown: toolInstance?.isOutputMarkdown || false,
-      };
-    });
 
     try {
       this.updateConversation((conversation) => {
@@ -307,19 +299,19 @@ export class ChatRecordingService {
         // message from tool calls, when we dequeued the thoughts.
         if (
           !lastMsg ||
-          lastMsg.type !== 'qwen' ||
+          lastMsg.type !== 'gemini' ||
           this.queuedThoughts.length > 0
         ) {
           const newMsg: MessageRecord = {
-            ...this.newMessage('qwen' as const, ''),
+            ...this.newMessage('gemini' as const, ''),
             // This isn't strictly necessary, but TypeScript apparently can't
             // tell that the first parameter to newMessage() becomes the
             // resulting message's type, and so it thinks that toolCalls may
             // not be present.  Confirming the type here satisfies it.
-            type: 'qwen' as const,
-            toolCalls: enrichedToolCalls,
+            type: 'gemini' as const,
+            toolCalls,
             thoughts: this.queuedThoughts,
-            model,
+            model: this.config.getModel(),
           };
           // If there are any queued thoughts join them to this message.
           if (this.queuedThoughts.length > 0) {
@@ -354,7 +346,7 @@ export class ChatRecordingService {
           });
 
           // Add any new tools calls that aren't in the message yet.
-          for (const toolCall of enrichedToolCalls) {
+          for (const toolCall of toolCalls) {
             const existingToolCall = lastMsg.toolCalls.find(
               (tc) => tc.id === toolCall.id,
             );

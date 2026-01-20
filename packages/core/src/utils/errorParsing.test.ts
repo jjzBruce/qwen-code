@@ -149,7 +149,9 @@ describe('parseAndFormatApiError', () => {
     expect(result).toContain(
       'You have reached your daily gemini-2.5-pro quota limit',
     );
-    expect(result).toContain('upgrade to get higher limits');
+    expect(result).toContain(
+      'upgrade to a Gemini Code Assist Standard or Enterprise plan',
+    );
   });
 
   it('should format a regular 429 API error with standard message for Google auth', () => {
@@ -228,7 +230,9 @@ describe('parseAndFormatApiError', () => {
     expect(result).toContain(
       'We appreciate you for choosing Gemini Code Assist and the Gemini CLI',
     );
-    expect(result).not.toContain('upgrade to get higher limits');
+    expect(result).not.toContain(
+      'upgrade to a Gemini Code Assist Standard or Enterprise plan',
+    );
   });
 
   it('should format a 429 API error with Pro quota exceeded message for Google auth (Legacy tier)', () => {
@@ -250,7 +254,9 @@ describe('parseAndFormatApiError', () => {
     expect(result).toContain(
       'We appreciate you for choosing Gemini Code Assist and the Gemini CLI',
     );
-    expect(result).not.toContain('upgrade to get higher limits');
+    expect(result).not.toContain(
+      'upgrade to a Gemini Code Assist Standard or Enterprise plan',
+    );
   });
 
   it('should handle different Gemini 2.5 version strings in Pro quota exceeded errors', () => {
@@ -280,8 +286,12 @@ describe('parseAndFormatApiError', () => {
     expect(resultPreview).toContain(
       'You have reached your daily gemini-2.5-preview-pro quota limit',
     );
-    expect(result25).toContain('upgrade to get higher limits');
-    expect(resultPreview).toContain('upgrade to get higher limits');
+    expect(result25).toContain(
+      'upgrade to a Gemini Code Assist Standard or Enterprise plan',
+    );
+    expect(resultPreview).toContain(
+      'upgrade to a Gemini Code Assist Standard or Enterprise plan',
+    );
   });
 
   it('should not match non-Pro models with similar version strings', () => {
@@ -339,7 +349,9 @@ describe('parseAndFormatApiError', () => {
     expect(result).toContain(
       'We appreciate you for choosing Gemini Code Assist and the Gemini CLI',
     );
-    expect(result).not.toContain('upgrade to get higher limits');
+    expect(result).not.toContain(
+      'upgrade to a Gemini Code Assist Standard or Enterprise plan',
+    );
   });
 
   it('should format a regular 429 API error with standard message for Google auth (Standard tier)', () => {
@@ -356,6 +368,8 @@ describe('parseAndFormatApiError', () => {
     expect(result).toContain(
       'We appreciate you for choosing Gemini Code Assist and the Gemini CLI',
     );
-    expect(result).not.toContain('upgrade to get higher limits');
+    expect(result).not.toContain(
+      'upgrade to a Gemini Code Assist Standard or Enterprise plan',
+    );
   });
 });

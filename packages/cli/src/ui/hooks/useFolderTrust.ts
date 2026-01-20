@@ -5,7 +5,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import type { LoadedSettings } from '../../config/settings.js';
+import type { Settings, LoadedSettings } from '../../config/settings.js';
 import { FolderTrustChoice } from '../components/FolderTrustDialog.js';
 import {
   loadTrustedFolders,
@@ -23,13 +23,18 @@ export const useFolderTrust = (
   const [isRestarting, setIsRestarting] = useState(false);
 
   const folderTrust = settings.merged.security?.folderTrust?.enabled;
+  const folderTrustFeature =
+    settings.merged.security?.folderTrust?.featureEnabled;
 
   useEffect(() => {
-    const { isTrusted: trusted } = isWorkspaceTrusted(settings.merged);
+    const trusted = isWorkspaceTrusted({
+      folderTrust,
+      folderTrustFeature,
+    } as Settings);
     setIsTrusted(trusted);
     setIsFolderTrustDialogOpen(trusted === undefined);
     onTrustChange(trusted);
-  }, [folderTrust, onTrustChange, settings.merged]);
+  }, [onTrustChange, folderTrust, folderTrustFeature]);
 
   const handleFolderTrustSelect = useCallback(
     (choice: FolderTrustChoice) => {
@@ -54,13 +59,13 @@ export const useFolderTrust = (
       }
 
       trustedFolders.setValue(cwd, trustLevel);
-      const currentIsTrusted =
+      const newIsTrusted =
         trustLevel === TrustLevel.TRUST_FOLDER ||
         trustLevel === TrustLevel.TRUST_PARENT;
-      setIsTrusted(currentIsTrusted);
-      onTrustChange(currentIsTrusted);
+      setIsTrusted(newIsTrusted);
+      onTrustChange(newIsTrusted);
 
-      const needsRestart = wasTrusted !== currentIsTrusted;
+      const needsRestart = wasTrusted !== newIsTrusted;
       if (needsRestart) {
         setIsRestarting(true);
         setIsFolderTrustDialogOpen(true);

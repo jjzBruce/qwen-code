@@ -11,7 +11,6 @@ import type {
   FunctionCall,
   FunctionDeclaration,
   FinishReason,
-  GenerateContentResponseUsageMetadata,
 } from '@google/genai';
 import type {
   ToolCallConfirmationDetails,
@@ -27,7 +26,6 @@ import {
   toFriendlyError,
 } from '../utils/errors.js';
 import type { GeminiChat } from './geminiChat.js';
-import { parseThought, type ThoughtSummary } from '../utils/thoughtUtils.js';
 
 // Define a structure for tools passed to the server
 export interface ServerTool {
@@ -80,18 +78,12 @@ export interface SessionTokenLimitExceededValue {
   message: string;
 }
 
-export interface GeminiFinishedEventValue {
-  reason: FinishReason | undefined;
-  usageMetadata: GenerateContentResponseUsageMetadata | undefined;
-}
-
 export interface ToolCallRequestInfo {
   callId: string;
   name: string;
   args: Record<string, unknown>;
   isClientInitiated: boolean;
   prompt_id: string;
-  response_id?: string;
 }
 
 export interface ToolCallResponseInfo {
@@ -100,14 +92,17 @@ export interface ToolCallResponseInfo {
   resultDisplay: ToolResultDisplay | undefined;
   error: Error | undefined;
   errorType: ToolErrorType | undefined;
-  outputFile?: string | undefined;
-  contentLength?: number;
 }
 
 export interface ServerToolCallConfirmationDetails {
   request: ToolCallRequestInfo;
   details: ToolCallConfirmationDetails;
 }
+
+export type ThoughtSummary = {
+  subject: string;
+  description: string;
+};
 
 export type ServerGeminiContentEvent = {
   type: GeminiEventType.Content;
@@ -153,9 +148,6 @@ export enum CompressionStatus {
   /** The compression failed due to an error counting tokens */
   COMPRESSION_FAILED_TOKEN_COUNT_ERROR,
 
-  /** The compression failed due to receiving an empty or null summary */
-  COMPRESSION_FAILED_EMPTY_SUMMARY,
-
   /** The compression was not necessary and no action was taken */
   NOOP,
 }
@@ -182,50 +174,45 @@ export type ServerGeminiSessionTokenLimitExceededEvent = {
 
 export type ServerGeminiFinishedEvent = {
   type: GeminiEventType.Finished;
-  value: GeminiFinishedEventValue;
+  value: FinishReason;
 };
 
 export type ServerGeminiLoopDetectedEvent = {
   type: GeminiEventType.LoopDetected;
 };
 
-export type ServerGeminiCitationEvent = {
-  type: GeminiEventType.Citation;
-  value: string;
-};
-
 // The original union type, now composed of the individual types
 export type ServerGeminiStreamEvent =
-  | ServerGeminiChatCompressedEvent
-  | ServerGeminiCitationEvent
   | ServerGeminiContentEvent
-  | ServerGeminiErrorEvent
-  | ServerGeminiFinishedEvent
-  | ServerGeminiLoopDetectedEvent
-  | ServerGeminiMaxSessionTurnsEvent
-  | ServerGeminiThoughtEvent
-  | ServerGeminiToolCallConfirmationEvent
   | ServerGeminiToolCallRequestEvent
   | ServerGeminiToolCallResponseEvent
+  | ServerGeminiToolCallConfirmationEvent
   | ServerGeminiUserCancelledEvent
+  | ServerGeminiErrorEvent
+  | ServerGeminiChatCompressedEvent
+  | ServerGeminiThoughtEvent
+  | ServerGeminiMaxSessionTurnsEvent
   | ServerGeminiSessionTokenLimitExceededEvent
+  | ServerGeminiFinishedEvent
+  | ServerGeminiLoopDetectedEvent
   | ServerGeminiRetryEvent;
 
 // A turn manages the agentic loop turn within the server context.
 export class Turn {
-  readonly pendingToolCalls: ToolCallRequestInfo[] = [];
-  private debugResponses: GenerateContentResponse[] = [];
-  private pendingCitations = new Set<string>();
-  finishReason: FinishReason | undefined = undefined;
-  private currentResponseId?: string;
+  readonly pendingToolCalls: ToolCallRequestInfo[];
+  private debugResponses: GenerateContentResponse[];
+  finishReason: FinishReason | undefined;
 
   constructor(
     private readonly chat: GeminiChat,
     private readonly prompt_id: string,
-  ) {}
+  ) {
+    this.pendingToolCalls = [];
+    this.debugResponses = [];
+    this.finishReason = undefined;
+  }
   // The run method yields simpler events suitable for server logic
   async *run(
-    model: string,
     req: PartListUnion,
     signal: AbortSignal,
   ): AsyncGenerator<ServerGeminiStreamEvent> {
@@ -233,7 +220,6 @@ export class Turn {
       // Note: This assumes `sendMessageStream` yields events like
       // { type: StreamEventType.RETRY } or { type: StreamEventType.CHUNK, value: GenerateContentResponse }
       const responseStream = await this.chat.sendMessageStream(
-        model,
         {
           message: req,
           config: {
@@ -261,14 +247,21 @@ export class Turn {
 
         this.debugResponses.push(resp);
 
-        // Track the current response ID for tool call correlation
-        if (resp.responseId) {
-          this.currentResponseId = resp.responseId;
-        }
-
         const thoughtPart = resp.candidates?.[0]?.content?.parts?.[0];
         if (thoughtPart?.thought) {
-          const thought = parseThought(thoughtPart.text ?? '');
+          // Thought always has a bold "subject" part enclosed in double asterisks
+          // (e.g., **Subject**). The rest of the string is considered the description.
+          const rawText = thoughtPart.text ?? '';
+          const subjectStringMatches = rawText.match(/\*\*(.*?)\*\*/s);
+          const subject = subjectStringMatches
+            ? subjectStringMatches[1].trim()
+            : '';
+          const description = rawText.replace(/\*\*(.*?)\*\*/s, '').trim();
+          const thought: ThoughtSummary = {
+            subject,
+            description,
+          };
+
           yield {
             type: GeminiEventType.Thought,
             value: thought,
@@ -290,30 +283,15 @@ export class Turn {
           }
         }
 
-        for (const citation of getCitations(resp)) {
-          this.pendingCitations.add(citation);
-        }
-
         // Check if response was truncated or stopped for various reasons
         const finishReason = resp.candidates?.[0]?.finishReason;
 
         // This is the key change: Only yield 'Finished' if there is a finishReason.
         if (finishReason) {
-          if (this.pendingCitations.size > 0) {
-            yield {
-              type: GeminiEventType.Citation,
-              value: `Citations:\n${[...this.pendingCitations].sort().join('\n')}`,
-            };
-            this.pendingCitations.clear();
-          }
-
           this.finishReason = finishReason;
           yield {
             type: GeminiEventType.Finished,
-            value: {
-              reason: finishReason,
-              usageMetadata: resp.usageMetadata,
-            },
+            value: finishReason as FinishReason,
           };
         }
       }
@@ -368,7 +346,6 @@ export class Turn {
       args,
       isClientInitiated: false,
       prompt_id: this.prompt_id,
-      response_id: this.currentResponseId,
     };
 
     this.pendingToolCalls.push(toolCallRequest);
@@ -380,15 +357,4 @@ export class Turn {
   getDebugResponses(): GenerateContentResponse[] {
     return this.debugResponses;
   }
-}
-
-function getCitations(resp: GenerateContentResponse): string[] {
-  return (resp.candidates?.[0]?.citationMetadata?.citations ?? [])
-    .filter((citation) => citation.uri !== undefined)
-    .map((citation) => {
-      if (citation.title) {
-        return `(${citation.title}) ${citation.uri}`;
-      }
-      return citation.uri!;
-    });
 }

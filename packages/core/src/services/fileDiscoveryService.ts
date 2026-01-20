@@ -5,34 +5,40 @@
  */
 
 import type { GitIgnoreFilter } from '../utils/gitIgnoreParser.js';
-import type { QwenIgnoreFilter } from '../utils/qwenIgnoreParser.js';
 import { GitIgnoreParser } from '../utils/gitIgnoreParser.js';
-import { QwenIgnoreParser } from '../utils/qwenIgnoreParser.js';
 import { isGitRepository } from '../utils/gitUtils.js';
 import * as path from 'node:path';
 
+const GEMINI_IGNORE_FILE_NAME = '.qwenignore';
+
 export interface FilterFilesOptions {
   respectGitIgnore?: boolean;
-  respectQwenIgnore?: boolean;
-}
-
-export interface FilterReport {
-  filteredPaths: string[];
-  gitIgnoredCount: number;
-  qwenIgnoredCount: number;
+  respectGeminiIgnore?: boolean;
 }
 
 export class FileDiscoveryService {
   private gitIgnoreFilter: GitIgnoreFilter | null = null;
-  private qwenIgnoreFilter: QwenIgnoreFilter | null = null;
+  private geminiIgnoreFilter: GitIgnoreFilter | null = null;
   private projectRoot: string;
 
   constructor(projectRoot: string) {
     this.projectRoot = path.resolve(projectRoot);
     if (isGitRepository(this.projectRoot)) {
-      this.gitIgnoreFilter = new GitIgnoreParser(this.projectRoot);
+      const parser = new GitIgnoreParser(this.projectRoot);
+      try {
+        parser.loadGitRepoPatterns();
+      } catch (_error) {
+        // ignore file not found
+      }
+      this.gitIgnoreFilter = parser;
     }
-    this.qwenIgnoreFilter = new QwenIgnoreParser(this.projectRoot);
+    const gParser = new GitIgnoreParser(this.projectRoot);
+    try {
+      gParser.loadPatterns(GEMINI_IGNORE_FILE_NAME);
+    } catch (_error) {
+      // ignore file not found
+    }
+    this.geminiIgnoreFilter = gParser;
   }
 
   /**
@@ -42,54 +48,21 @@ export class FileDiscoveryService {
     filePaths: string[],
     options: FilterFilesOptions = {
       respectGitIgnore: true,
-      respectQwenIgnore: true,
+      respectGeminiIgnore: true,
     },
   ): string[] {
     return filePaths.filter((filePath) => {
       if (options.respectGitIgnore && this.shouldGitIgnoreFile(filePath)) {
         return false;
       }
-      if (options.respectQwenIgnore && this.shouldQwenIgnoreFile(filePath)) {
+      if (
+        options.respectGeminiIgnore &&
+        this.shouldGeminiIgnoreFile(filePath)
+      ) {
         return false;
       }
       return true;
     });
-  }
-
-  /**
-   * Filters a list of file paths based on git ignore rules and returns a report
-   * with counts of ignored files.
-   */
-  filterFilesWithReport(
-    filePaths: string[],
-    opts: FilterFilesOptions = {
-      respectGitIgnore: true,
-      respectQwenIgnore: true,
-    },
-  ): FilterReport {
-    const filteredPaths: string[] = [];
-    let gitIgnoredCount = 0;
-    let qwenIgnoredCount = 0;
-
-    for (const filePath of filePaths) {
-      if (opts.respectGitIgnore && this.shouldGitIgnoreFile(filePath)) {
-        gitIgnoredCount++;
-        continue;
-      }
-
-      if (opts.respectQwenIgnore && this.shouldQwenIgnoreFile(filePath)) {
-        qwenIgnoredCount++;
-        continue;
-      }
-
-      filteredPaths.push(filePath);
-    }
-
-    return {
-      filteredPaths,
-      gitIgnoredCount,
-      qwenIgnoredCount,
-    };
   }
 
   /**
@@ -103,11 +76,11 @@ export class FileDiscoveryService {
   }
 
   /**
-   * Checks if a single file should be qwen-ignored
+   * Checks if a single file should be gemini-ignored
    */
-  shouldQwenIgnoreFile(filePath: string): boolean {
-    if (this.qwenIgnoreFilter) {
-      return this.qwenIgnoreFilter.isIgnored(filePath);
+  shouldGeminiIgnoreFile(filePath: string): boolean {
+    if (this.geminiIgnoreFilter) {
+      return this.geminiIgnoreFilter.isIgnored(filePath);
     }
     return false;
   }
@@ -119,15 +92,12 @@ export class FileDiscoveryService {
     filePath: string,
     options: FilterFilesOptions = {},
   ): boolean {
-    const {
-      respectGitIgnore = true,
-      respectQwenIgnore: respectQwenIgnore = true,
-    } = options;
+    const { respectGitIgnore = true, respectGeminiIgnore = true } = options;
 
     if (respectGitIgnore && this.shouldGitIgnoreFile(filePath)) {
       return true;
     }
-    if (respectQwenIgnore && this.shouldQwenIgnoreFile(filePath)) {
+    if (respectGeminiIgnore && this.shouldGeminiIgnoreFile(filePath)) {
       return true;
     }
     return false;
@@ -136,7 +106,7 @@ export class FileDiscoveryService {
   /**
    * Returns loaded patterns from .qwenignore
    */
-  getQwenIgnorePatterns(): string[] {
-    return this.qwenIgnoreFilter?.getPatterns() ?? [];
+  getGeminiIgnorePatterns(): string[] {
+    return this.geminiIgnoreFilter?.getPatterns() ?? [];
   }
 }

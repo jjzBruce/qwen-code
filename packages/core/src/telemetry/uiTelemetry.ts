@@ -144,8 +144,8 @@ export class UiTelemetryService extends EventEmitter {
     return this.#lastPromptTokenCount;
   }
 
-  setLastPromptTokenCount(lastPromptTokenCount: number): void {
-    this.#lastPromptTokenCount = lastPromptTokenCount;
+  resetLastPromptTokenCount(): void {
+    this.#lastPromptTokenCount = 0;
     this.emit('update', {
       metrics: this.#metrics,
       lastPromptTokenCount: this.#lastPromptTokenCount,
@@ -171,6 +171,8 @@ export class UiTelemetryService extends EventEmitter {
     modelMetrics.tokens.cached += event.cached_content_token_count;
     modelMetrics.tokens.thoughts += event.thoughts_token_count;
     modelMetrics.tokens.tool += event.tool_token_count;
+
+    this.#lastPromptTokenCount = event.input_token_count;
   }
 
   private processApiError(event: ApiErrorEvent) {
@@ -222,11 +224,11 @@ export class UiTelemetryService extends EventEmitter {
 
     // Aggregate line count data from metadata
     if (event.metadata) {
-      if (event.metadata['model_added_lines'] !== undefined) {
-        files.totalLinesAdded += event.metadata['model_added_lines'];
+      if (event.metadata['ai_added_lines'] !== undefined) {
+        files.totalLinesAdded += event.metadata['ai_added_lines'];
       }
-      if (event.metadata['model_removed_lines'] !== undefined) {
-        files.totalLinesRemoved += event.metadata['model_removed_lines'];
+      if (event.metadata['ai_removed_lines'] !== undefined) {
+        files.totalLinesRemoved += event.metadata['ai_removed_lines'];
       }
     }
   }

@@ -1,24 +1,30 @@
-# Local Development ⚙️
+# Local Development
 
 ## Running the Extension
 
-To run the extension locally for development, we recommend using the automatic watch process for continuous compilation:
+To run the extension locally for development:
 
-1.  **Install Dependencies** (from the root of the repository):
+1.  From the root of the repository, install dependencies:
     ```bash
     npm install
     ```
-2.  **Open in VS Code:** Open this directory (`packages/vscode-ide-companion`) in your VS Code editor.
-3.  **Start Watch Mode:** Run the watch script to compile the extension and monitor changes in both **esbuild** and **TypeScript**:
+2.  Open this directory (`packages/vscode-ide-companion`) in VS Code.
+3.  Compile the extension:
     ```bash
-    npm run watch
+    npm run compile
     ```
-4.  **Launch Host:** Press **`F5`** (or **`fn+F5`** on Mac) to open a new **Extension Development Host** window with the extension running.
+4.  Press `F5` (fn+f5 on mac) to open a new Extension Development Host window with the extension running.
 
-### Manual Build
-
-If you only need to compile the extension once without watching for changes:
+To watch for changes and have the extension rebuild automatically, run:
 
 ```bash
-npm run build
+npm run watch
+```
+
+## Running Tests
+
+To run the automated tests, run:
+
+```bash
+npm run test
 ```

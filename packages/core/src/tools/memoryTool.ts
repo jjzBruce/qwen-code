@@ -70,7 +70,7 @@ Do NOT use this tool:
   - If not specified, the tool will ask the user where they want to save the memory.
 `;
 
-export const QWEN_CONFIG_DIR = '.qwen';
+export const GEMINI_CONFIG_DIR = '.qwen';
 export const DEFAULT_CONTEXT_FILENAME = 'QWEN.md';
 export const MEMORY_SECTION_HEADER = '## Qwen Added Memories';
 
@@ -110,7 +110,7 @@ interface SaveMemoryParams {
 }
 
 function getGlobalMemoryFilePath(): string {
-  return path.join(Storage.getGlobalQwenDir(), getCurrentGeminiMdFilename());
+  return path.join(Storage.getGlobalGeminiDir(), getCurrentGeminiMdFilename());
 }
 
 function getProjectMemoryFilePath(): string {
@@ -309,7 +309,7 @@ Preview of changes to be made to GLOBAL memory:
     if (!fact || typeof fact !== 'string' || fact.trim() === '') {
       const errorMessage = 'Parameter "fact" must be a non-empty string.';
       return {
-        llmContent: `Error: ${errorMessage}`,
+        llmContent: JSON.stringify({ success: false, error: errorMessage }),
         returnDisplay: `Error: ${errorMessage}`,
       };
     }
@@ -324,7 +324,10 @@ Global: ${globalPath} (shared across all projects)
 Project: ${projectPath} (current project only)`;
 
       return {
-        llmContent: errorMessage,
+        llmContent: JSON.stringify({
+          success: false,
+          error: 'Please specify where to save this memory',
+        }),
         returnDisplay: errorMessage,
       };
     }
@@ -341,7 +344,10 @@ Project: ${projectPath} (current project only)`;
         await fs.writeFile(memoryFilePath, modified_content, 'utf-8');
         const successMessage = `Okay, I've updated the ${scope} memory file with your modifications.`;
         return {
-          llmContent: successMessage,
+          llmContent: JSON.stringify({
+            success: true,
+            message: successMessage,
+          }),
           returnDisplay: successMessage,
         };
       } else {
@@ -353,7 +359,10 @@ Project: ${projectPath} (current project only)`;
         });
         const successMessage = `Okay, I've remembered that in ${scope} memory: "${fact}"`;
         return {
-          llmContent: successMessage,
+          llmContent: JSON.stringify({
+            success: true,
+            message: successMessage,
+          }),
           returnDisplay: successMessage,
         };
       }
@@ -363,9 +372,11 @@ Project: ${projectPath} (current project only)`;
       console.error(
         `[MemoryTool] Error executing save_memory for fact "${fact}" in ${scope}: ${errorMessage}`,
       );
-
       return {
-        llmContent: `Error saving memory: ${errorMessage}`,
+        llmContent: JSON.stringify({
+          success: false,
+          error: `Failed to save memory. Detail: ${errorMessage}`,
+        }),
         returnDisplay: `Error saving memory: ${errorMessage}`,
         error: {
           message: errorMessage,
@@ -421,18 +432,49 @@ export class MemoryTool
       ) => Promise<string | undefined>;
     },
   ): Promise<void> {
+    let processedText = text.trim();
+    // Remove leading hyphens and spaces that might be misinterpreted as markdown list items
+    processedText = processedText.replace(/^(-+\s*)+/, '').trim();
+    const newMemoryItem = `- ${processedText}`;
+
     try {
       await fsAdapter.mkdir(path.dirname(memoryFilePath), { recursive: true });
-      let currentContent = '';
+      let content = '';
       try {
-        currentContent = await fsAdapter.readFile(memoryFilePath, 'utf-8');
+        content = await fsAdapter.readFile(memoryFilePath, 'utf-8');
       } catch (_e) {
-        // File doesn't exist, which is fine. currentContent will be empty.
+        // File doesn't exist, will be created with header and item.
       }
 
-      const newContent = computeNewContent(currentContent, text);
+      const headerIndex = content.indexOf(MEMORY_SECTION_HEADER);
 
-      await fsAdapter.writeFile(memoryFilePath, newContent, 'utf-8');
+      if (headerIndex === -1) {
+        // Header not found, append header and then the entry
+        const separator = ensureNewlineSeparation(content);
+        content += `${separator}${MEMORY_SECTION_HEADER}\n${newMemoryItem}\n`;
+      } else {
+        // Header found, find where to insert the new memory entry
+        const startOfSectionContent =
+          headerIndex + MEMORY_SECTION_HEADER.length;
+        let endOfSectionIndex = content.indexOf('\n## ', startOfSectionContent);
+        if (endOfSectionIndex === -1) {
+          endOfSectionIndex = content.length; // End of file
+        }
+
+        const beforeSectionMarker = content
+          .substring(0, startOfSectionContent)
+          .trimEnd();
+        let sectionContent = content
+          .substring(startOfSectionContent, endOfSectionIndex)
+          .trimEnd();
+        const afterSectionMarker = content.substring(endOfSectionIndex);
+
+        sectionContent += `\n${newMemoryItem}`;
+        content =
+          `${beforeSectionMarker}\n${sectionContent.trimStart()}\n${afterSectionMarker}`.trimEnd() +
+          '\n';
+      }
+      await fsAdapter.writeFile(memoryFilePath, content, 'utf-8');
     } catch (error) {
       console.error(
         `[MemoryTool] Error adding memory entry to ${memoryFilePath}:`,

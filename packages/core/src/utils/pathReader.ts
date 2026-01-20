@@ -74,7 +74,7 @@ export async function readPathFromWorkspace(
     );
     const filteredFiles = fileService.filterFiles(relativeFiles, {
       respectGitIgnore: true,
-      respectQwenIgnore: true,
+      respectGeminiIgnore: true,
     });
     const finalFiles = filteredFiles.map((p) =>
       path.resolve(config.getTargetDir(), p),
@@ -83,7 +83,11 @@ export async function readPathFromWorkspace(
     for (const filePath of finalFiles) {
       const relativePathForDisplay = path.relative(absolutePath, filePath);
       allParts.push({ text: `--- ${relativePathForDisplay} ---\n` });
-      const result = await processSingleFileContent(filePath, config);
+      const result = await processSingleFileContent(
+        filePath,
+        config.getTargetDir(),
+        config.getFileSystemService(),
+      );
       allParts.push(result.llmContent);
       allParts.push({ text: '\n' }); // Add a newline for separation
     }
@@ -95,7 +99,7 @@ export async function readPathFromWorkspace(
     const relativePath = path.relative(config.getTargetDir(), absolutePath);
     const filtered = fileService.filterFiles([relativePath], {
       respectGitIgnore: true,
-      respectQwenIgnore: true,
+      respectGeminiIgnore: true,
     });
 
     if (filtered.length === 0) {
@@ -104,7 +108,11 @@ export async function readPathFromWorkspace(
     }
 
     // It's a single file, process it directly.
-    const result = await processSingleFileContent(absolutePath, config);
+    const result = await processSingleFileContent(
+      absolutePath,
+      config.getTargetDir(),
+      config.getFileSystemService(),
+    );
     return [result.llmContent];
   }
 }

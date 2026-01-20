@@ -4,82 +4,83 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { Mock } from 'vitest';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Content } from '@google/genai';
-import { BaseLlmClient } from '../core/baseLlmClient.js';
-import type { ContentGenerator } from '../core/contentGenerator.js';
-import type { Config } from '../config/config.js';
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  type Mock,
+  afterEach,
+} from 'vitest';
+import type { Content, GoogleGenAI, Models } from '@google/genai';
+import { DEFAULT_QWEN_FLASH_MODEL } from '../config/models.js';
+import { GeminiClient } from '../core/client.js';
+import { Config } from '../config/config.js';
 import type { NextSpeakerResponse } from './nextSpeakerChecker.js';
 import { checkNextSpeaker } from './nextSpeakerChecker.js';
 import { GeminiChat } from '../core/geminiChat.js';
 
-// Mock fs module to prevent actual file system operations during tests
-const mockFileSystem = new Map<string, string>();
+// Mock GeminiClient and Config constructor
+vi.mock('../core/client.js');
+vi.mock('../config/config.js');
 
-vi.mock('node:fs', () => {
-  const fsModule = {
-    mkdirSync: vi.fn(),
-    writeFileSync: vi.fn((path: string, data: string) => {
-      mockFileSystem.set(path, data);
-    }),
-    readFileSync: vi.fn((path: string) => {
-      if (mockFileSystem.has(path)) {
-        return mockFileSystem.get(path);
-      }
-      throw Object.assign(new Error('ENOENT: no such file or directory'), {
-        code: 'ENOENT',
-      });
-    }),
-    existsSync: vi.fn((path: string) => mockFileSystem.has(path)),
-  };
+// Define mocks for GoogleGenAI and Models instances that will be used across tests
+const mockModelsInstance = {
+  generateContent: vi.fn(),
+  generateContentStream: vi.fn(),
+  countTokens: vi.fn(),
+  embedContent: vi.fn(),
+  batchEmbedContents: vi.fn(),
+} as unknown as Models;
 
+const mockGoogleGenAIInstance = {
+  getGenerativeModel: vi.fn().mockReturnValue(mockModelsInstance),
+  // Add other methods of GoogleGenAI if they are directly used by GeminiChat constructor or its methods
+} as unknown as GoogleGenAI;
+
+vi.mock('@google/genai', async () => {
+  const actualGenAI =
+    await vi.importActual<typeof import('@google/genai')>('@google/genai');
   return {
-    default: fsModule,
-    ...fsModule,
+    ...actualGenAI,
+    GoogleGenAI: vi.fn(() => mockGoogleGenAIInstance), // Mock constructor to return the predefined instance
+    // If Models is instantiated directly in GeminiChat, mock its constructor too
+    // For now, assuming Models instance is obtained via getGenerativeModel
   };
 });
 
-// Mock GeminiClient and Config constructor
-vi.mock('../core/baseLlmClient.js');
-vi.mock('../config/config.js');
-
 describe('checkNextSpeaker', () => {
   let chatInstance: GeminiChat;
-  let mockConfig: Config;
-  let mockBaseLlmClient: BaseLlmClient;
+  let mockGeminiClient: GeminiClient;
+  let MockConfig: Mock;
   const abortSignal = new AbortController().signal;
-  const promptId = 'test-prompt-id';
 
   beforeEach(() => {
-    vi.resetAllMocks();
-
-    mockBaseLlmClient = new BaseLlmClient(
-      {
-        generateContent: vi.fn(),
-        generateContentStream: vi.fn(),
-        countTokens: vi.fn(),
-        embedContent: vi.fn(),
-      } as ContentGenerator,
-      {} as Config,
+    MockConfig = vi.mocked(Config);
+    const mockConfigInstance = new MockConfig(
+      'test-api-key',
+      'gemini-pro',
+      false,
+      '.',
+      false,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      undefined,
     );
 
-    // Add generateJson mock to the client
-    mockBaseLlmClient.generateJson = vi.fn();
+    mockGeminiClient = new GeminiClient(mockConfigInstance);
 
-    mockConfig = {
-      getProjectRoot: vi.fn().mockReturnValue('/test/project/root'),
-      getSessionId: vi.fn().mockReturnValue('test-session-id'),
-      getModel: () => 'test-model',
-      getBaseLlmClient: vi.fn().mockReturnValue(mockBaseLlmClient),
-      storage: {
-        getProjectTempDir: vi.fn().mockReturnValue('/test/temp'),
-      },
-    } as unknown as Config;
+    // Reset mocks before each test to ensure test isolation
+    vi.mocked(mockModelsInstance.generateContent).mockReset();
+    vi.mocked(mockModelsInstance.generateContentStream).mockReset();
 
     // GeminiChat will receive the mocked instances via the mocked GoogleGenAI constructor
     chatInstance = new GeminiChat(
-      mockConfig,
+      mockConfigInstance,
+      mockModelsInstance, // This is the instance returned by mockGoogleGenAIInstance.getGenerativeModel
       {},
       [], // initial history
     );
@@ -89,33 +90,31 @@ describe('checkNextSpeaker', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it('should return null if history is empty', async () => {
     (chatInstance.getHistory as Mock).mockReturnValue([]);
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toBeNull();
-    expect(mockBaseLlmClient.generateJson).not.toHaveBeenCalled();
+    expect(mockGeminiClient.generateJson).not.toHaveBeenCalled();
   });
 
   it('should return null if the last speaker was the user', async () => {
-    vi.mocked(chatInstance.getHistory).mockReturnValue([
+    (chatInstance.getHistory as Mock).mockReturnValue([
       { role: 'user', parts: [{ text: 'Hello' }] },
-    ]);
+    ] as Content[]);
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toBeNull();
-    expect(mockBaseLlmClient.generateJson).not.toHaveBeenCalled();
+    expect(mockGeminiClient.generateJson).not.toHaveBeenCalled();
   });
 
   it("should return { next_speaker: 'model' } when model intends to continue", async () => {
@@ -126,16 +125,15 @@ describe('checkNextSpeaker', () => {
       reasoning: 'Model stated it will do something.',
       next_speaker: 'model',
     };
-    (mockBaseLlmClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
+    (mockGeminiClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
 
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toEqual(mockApiResponse);
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalledTimes(1);
+    expect(mockGeminiClient.generateJson).toHaveBeenCalledTimes(1);
   });
 
   it("should return { next_speaker: 'user' } when model asks a question", async () => {
@@ -146,13 +144,12 @@ describe('checkNextSpeaker', () => {
       reasoning: 'Model asked a question.',
       next_speaker: 'user',
     };
-    (mockBaseLlmClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
+    (mockGeminiClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
 
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toEqual(mockApiResponse);
   });
@@ -165,92 +162,87 @@ describe('checkNextSpeaker', () => {
       reasoning: 'Model made a statement, awaiting user input.',
       next_speaker: 'user',
     };
-    (mockBaseLlmClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
+    (mockGeminiClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
 
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toEqual(mockApiResponse);
   });
 
-  it('should return null if baseLlmClient.generateJson throws an error', async () => {
+  it('should return null if geminiClient.generateJson throws an error', async () => {
     const consoleWarnSpy = vi
       .spyOn(console, 'warn')
       .mockImplementation(() => {});
     (chatInstance.getHistory as Mock).mockReturnValue([
       { role: 'model', parts: [{ text: 'Some model output.' }] },
     ] as Content[]);
-    (mockBaseLlmClient.generateJson as Mock).mockRejectedValue(
+    (mockGeminiClient.generateJson as Mock).mockRejectedValue(
       new Error('API Error'),
     );
 
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toBeNull();
     consoleWarnSpy.mockRestore();
   });
 
-  it('should return null if baseLlmClient.generateJson returns invalid JSON (missing next_speaker)', async () => {
+  it('should return null if geminiClient.generateJson returns invalid JSON (missing next_speaker)', async () => {
     (chatInstance.getHistory as Mock).mockReturnValue([
       { role: 'model', parts: [{ text: 'Some model output.' }] },
     ] as Content[]);
-    (mockBaseLlmClient.generateJson as Mock).mockResolvedValue({
+    (mockGeminiClient.generateJson as Mock).mockResolvedValue({
       reasoning: 'This is incomplete.',
     } as unknown as NextSpeakerResponse); // Type assertion to simulate invalid response
 
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toBeNull();
   });
 
-  it('should return null if baseLlmClient.generateJson returns a non-string next_speaker', async () => {
+  it('should return null if geminiClient.generateJson returns a non-string next_speaker', async () => {
     (chatInstance.getHistory as Mock).mockReturnValue([
       { role: 'model', parts: [{ text: 'Some model output.' }] },
     ] as Content[]);
-    (mockBaseLlmClient.generateJson as Mock).mockResolvedValue({
+    (mockGeminiClient.generateJson as Mock).mockResolvedValue({
       reasoning: 'Model made a statement, awaiting user input.',
       next_speaker: 123, // Invalid type
     } as unknown as NextSpeakerResponse);
 
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toBeNull();
   });
 
-  it('should return null if baseLlmClient.generateJson returns an invalid next_speaker string value', async () => {
+  it('should return null if geminiClient.generateJson returns an invalid next_speaker string value', async () => {
     (chatInstance.getHistory as Mock).mockReturnValue([
       { role: 'model', parts: [{ text: 'Some model output.' }] },
     ] as Content[]);
-    (mockBaseLlmClient.generateJson as Mock).mockResolvedValue({
+    (mockGeminiClient.generateJson as Mock).mockResolvedValue({
       reasoning: 'Model made a statement, awaiting user input.',
       next_speaker: 'neither', // Invalid enum value
     } as unknown as NextSpeakerResponse);
 
     const result = await checkNextSpeaker(
       chatInstance,
-      mockConfig,
+      mockGeminiClient,
       abortSignal,
-      promptId,
     );
     expect(result).toBeNull();
   });
 
-  it('should call generateJson with the correct parameters', async () => {
+  it('should call generateJson with DEFAULT_QWEN_FLASH_MODEL', async () => {
     (chatInstance.getHistory as Mock).mockReturnValue([
       { role: 'model', parts: [{ text: 'Some model output.' }] },
     ] as Content[]);
@@ -258,14 +250,13 @@ describe('checkNextSpeaker', () => {
       reasoning: 'Model made a statement, awaiting user input.',
       next_speaker: 'user',
     };
-    (mockBaseLlmClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
+    (mockGeminiClient.generateJson as Mock).mockResolvedValue(mockApiResponse);
 
-    await checkNextSpeaker(chatInstance, mockConfig, abortSignal, promptId);
+    await checkNextSpeaker(chatInstance, mockGeminiClient, abortSignal);
 
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalled();
-    const generateJsonCall = (mockBaseLlmClient.generateJson as Mock).mock
+    expect(mockGeminiClient.generateJson).toHaveBeenCalled();
+    const generateJsonCall = (mockGeminiClient.generateJson as Mock).mock
       .calls[0];
-    expect(generateJsonCall[0].model).toBe('test-model');
-    expect(generateJsonCall[0].promptId).toBe(promptId);
+    expect(generateJsonCall[3]).toBe(DEFAULT_QWEN_FLASH_MODEL);
   });
 });

@@ -9,7 +9,7 @@ import * as process from 'node:process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
-import { IDE_DEFINITIONS, type IdeInfo } from './detect-ide.js';
+import { DetectedIde, getIdeInfo, type IdeInfo } from './detect-ide.js';
 import { QWEN_CODE_COMPANION_EXTENSION_NAME } from './constants.js';
 
 function getVsCodeCommand(platform: NodeJS.Platform = process.platform) {
@@ -100,12 +100,14 @@ async function findVsCodeCommand(
 
 class VsCodeInstaller implements IdeInstaller {
   private vsCodeCommand: Promise<string | null>;
+  private readonly ideInfo: IdeInfo;
 
   constructor(
-    readonly ideInfo: IdeInfo,
+    readonly ide: DetectedIde,
     readonly platform = process.platform,
   ) {
     this.vsCodeCommand = findVsCodeCommand(platform);
+    this.ideInfo = getIdeInfo(ide);
   }
 
   async install(): Promise<InstallResult> {
@@ -117,24 +119,9 @@ class VsCodeInstaller implements IdeInstaller {
       };
     }
 
-    const isWindows = process.platform === 'win32';
+    const command = `"${commandPath}" --install-extension qwenlm.qwen-code-vscode-ide-companion --force`;
     try {
-      const result = child_process.spawnSync(
-        isWindows ? `"${commandPath}"` : commandPath,
-        [
-          '--install-extension',
-          'qwenlm.qwen-code-vscode-ide-companion',
-          '--force',
-        ],
-        { stdio: 'pipe', shell: isWindows },
-      );
-
-      if (result.status !== 0) {
-        throw new Error(
-          `Failed to install extension: ${result.stderr?.toString()}`,
-        );
-      }
-
+      child_process.execSync(command, { stdio: 'pipe' });
       return {
         success: true,
         message: `${this.ideInfo.displayName} companion extension was installed successfully.`,
@@ -149,12 +136,12 @@ class VsCodeInstaller implements IdeInstaller {
 }
 
 export function getIdeInstaller(
-  ide: IdeInfo,
+  ide: DetectedIde,
   platform = process.platform,
 ): IdeInstaller | null {
-  switch (ide.name) {
-    case IDE_DEFINITIONS.vscode.name:
-    case IDE_DEFINITIONS.firebasestudio.name:
+  switch (ide) {
+    case DetectedIde.VSCode:
+    case DetectedIde.FirebaseStudio:
       return new VsCodeInstaller(ide, platform);
     default:
       return null;

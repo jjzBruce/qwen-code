@@ -50,6 +50,7 @@
     "src/ui/commands/directoryCommand.test.tsx",
     "src/ui/commands/ideCommand.test.ts",
     "src/ui/commands/initCommand.test.ts",
+    "src/ui/commands/privacyCommand.test.ts",
     "src/ui/commands/quitCommand.test.ts",
     "src/ui/commands/mcpCommand.test.ts",
     "src/ui/commands/memoryCommand.test.ts",
@@ -65,7 +66,6 @@
     "src/ui/components/shared/vim-buffer-actions.test.ts",
     "src/ui/components/StatsDisplay.test.tsx",
     "src/ui/components/ToolStatsDisplay.test.tsx",
-    "src/ui/components/WarningMessage.test.tsx",
     "src/ui/contexts/SessionContext.test.tsx",
     "src/ui/hooks/slashCommandProcessor.test.ts",
     "src/ui/hooks/useAtCompletion.test.ts",
@@ -80,8 +80,7 @@
     "src/ui/utils/computeStats.test.ts",
     "src/ui/themes/theme.test.ts",
     "src/validateNonInterActiveAuth.test.ts",
-    "src/services/prompt-processors/shellProcessor.test.ts",
-    "src/commands/extensions/examples/**"
+    "src/services/prompt-processors/shellProcessor.test.ts"
   ],
   "references": [{ "path": "../core" }]
 }

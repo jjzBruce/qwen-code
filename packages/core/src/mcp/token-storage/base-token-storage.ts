@@ -9,7 +9,7 @@ import type { TokenStorage, OAuthCredentials } from './types.js';
 export abstract class BaseTokenStorage implements TokenStorage {
   protected readonly serviceName: string;
 
-  constructor(serviceName: string) {
+  constructor(serviceName: string = 'gemini-cli-mcp-oauth') {
     this.serviceName = serviceName;
   }
 

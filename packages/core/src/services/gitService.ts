@@ -4,11 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { exec } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { spawnAsync } from '../utils/shell-utils.js';
-import type { SimpleGit } from 'simple-git';
-import { simpleGit, CheckRepoActions } from 'simple-git';
+import { CheckRepoActions, simpleGit, type SimpleGit } from 'simple-git';
 import type { Storage } from '../config/storage.js';
 import { isNodeError } from '../utils/errors.js';
 
@@ -41,13 +40,16 @@ export class GitService {
     }
   }
 
-  async verifyGitAvailability(): Promise<boolean> {
-    try {
-      await spawnAsync('git', ['--version']);
-      return true;
-    } catch (_error) {
-      return false;
-    }
+  verifyGitAvailability(): Promise<boolean> {
+    return new Promise((resolve) => {
+      exec('git --version', (error) => {
+        if (error) {
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      });
+    });
   }
 
   /**

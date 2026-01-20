@@ -6,6 +6,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
+import { Colors } from '../../../colors.js';
 import type {
   TaskResultDisplay,
   SubagentStatsSummary,
@@ -46,7 +47,7 @@ const getStatusColor = (
     case 'failed':
       return theme.status.error;
     default:
-      return theme.text.secondary;
+      return Colors.Gray;
   }
 };
 
@@ -156,7 +157,7 @@ export const AgentExecutionDisplay: React.FC<AgentExecutionDisplayProps> = ({
                 {/* Show count of additional tool calls if there are more than 1 */}
                 {data.toolCalls.length > 1 && !data.pendingConfirmation && (
                   <Box flexDirection="row" paddingLeft={4}>
-                    <Text color={theme.text.secondary}>
+                    <Text color={Colors.Gray}>
                       +{data.toolCalls.length - 1} more tool calls (ctrl+r to
                       expand)
                     </Text>
@@ -258,7 +259,7 @@ export const AgentExecutionDisplay: React.FC<AgentExecutionDisplayProps> = ({
       {/* Footer with keyboard shortcuts */}
       {footerText && (
         <Box flexDirection="row">
-          <Text color={theme.text.secondary}>{footerText}</Text>
+          <Text color={Colors.Gray}>{footerText}</Text>
         </Box>
       )}
     </Box>
@@ -282,7 +283,7 @@ const TaskPromptSection: React.FC<{
       <Box flexDirection="row">
         <Text color={theme.text.primary}>Task Detail: </Text>
         {shouldTruncate && displayMode === 'default' && (
-          <Text color={theme.text.secondary}>
+          <Text color={Colors.Gray}>
             {' '}
             Showing the first {MAX_TASK_PROMPT_LINES} lines.
           </Text>
@@ -339,7 +340,7 @@ const ToolCallsList: React.FC<{
       <Box flexDirection="row" marginBottom={1}>
         <Text color={theme.text.primary}>Tools:</Text>
         {shouldTruncate && displayMode === 'default' && (
-          <Text color={theme.text.secondary}>
+          <Text color={Colors.Gray}>
             {' '}
             Showing the last {MAX_TOOL_CALLS} of {calls.length} tools.
           </Text>
@@ -414,7 +415,7 @@ const ToolCallItem: React.FC<{
         <Box minWidth={STATUS_INDICATOR_WIDTH}>{statusIcon}</Box>
         <Text wrap="truncate-end">
           <Text>{toolCall.name}</Text>{' '}
-          <Text color={theme.text.secondary}>{description}</Text>
+          <Text color={Colors.Gray}>{description}</Text>
           {toolCall.error && (
             <Text color={theme.status.error}> - {toolCall.error}</Text>
           )}
@@ -424,7 +425,7 @@ const ToolCallItem: React.FC<{
       {/* Second line: truncated returnDisplay output - hidden in compact mode */}
       {!compact && truncatedOutput && (
         <Box flexDirection="row" paddingLeft={STATUS_INDICATOR_WIDTH}>
-          <Text color={theme.text.secondary}>{truncatedOutput}</Text>
+          <Text color={Colors.Gray}>{truncatedOutput}</Text>
         </Box>
       )}
     </Box>
@@ -443,7 +444,7 @@ const ExecutionSummaryDetails: React.FC<{
   if (!stats) {
     return (
       <Box flexDirection="column" paddingLeft={1}>
-        <Text color={theme.text.secondary}>• No summary available</Text>
+        <Text color={Colors.Gray}>• No summary available</Text>
       </Box>
     );
   }
@@ -472,7 +473,7 @@ const ToolUsageStats: React.FC<{
   if (!executionSummary) {
     return (
       <Box flexDirection="column" paddingLeft={1}>
-        <Text color={theme.text.secondary}>• No tool usage data available</Text>
+        <Text color={Colors.Gray}>• No tool usage data available</Text>
       </Box>
     );
   }
@@ -484,15 +485,15 @@ const ToolUsageStats: React.FC<{
       </Text>
       <Text>
         • <Text>Success Rate:</Text>{' '}
-        <Text color={theme.status.success}>
+        <Text color={Colors.AccentGreen}>
           {executionSummary.successRate.toFixed(1)}%
         </Text>{' '}
         (
-        <Text color={theme.status.success}>
+        <Text color={Colors.AccentGreen}>
           {executionSummary.successfulToolCalls} success
         </Text>
         ,{' '}
-        <Text color={theme.status.error}>
+        <Text color={Colors.AccentRed}>
           {executionSummary.failedToolCalls} failed
         </Text>
         )

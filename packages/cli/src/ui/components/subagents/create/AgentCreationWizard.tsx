@@ -17,6 +17,7 @@ import { type WizardStepProps } from '../types.js';
 import { WIZARD_STEPS } from '../constants.js';
 import { getStepKind } from '../utils.js';
 import type { Config } from '@qwen-code/qwen-code-core';
+import { Colors } from '../../../colors.js';
 import { theme } from '../../../semantic-colors.js';
 import { TextEntryStep } from './TextEntryStep.js';
 import { useKeypress } from '../../../hooks/useKeypress.js';
@@ -130,17 +131,15 @@ export function AgentCreationWizard({
           <Text color={theme.status.warning} bold>
             Debug Info:
           </Text>
-          <Text color={theme.text.secondary}>Step: {state.currentStep}</Text>
-          <Text color={theme.text.secondary}>
+          <Text color={Colors.Gray}>Step: {state.currentStep}</Text>
+          <Text color={Colors.Gray}>
             Can Proceed: {state.canProceed ? 'Yes' : 'No'}
           </Text>
-          <Text color={theme.text.secondary}>
+          <Text color={Colors.Gray}>
             Generating: {state.isGenerating ? 'Yes' : 'No'}
           </Text>
-          <Text color={theme.text.secondary}>Location: {state.location}</Text>
-          <Text color={theme.text.secondary}>
-            Method: {state.generationMethod}
-          </Text>
+          <Text color={Colors.Gray}>Location: {state.location}</Text>
+          <Text color={Colors.Gray}>Method: {state.generationMethod}</Text>
           {state.validationErrors.length > 0 && (
             <Text color={theme.status.error}>
               Errors: {state.validationErrors.join(', ')}
@@ -304,7 +303,7 @@ export function AgentCreationWizard({
       {/* Main content wrapped in bounding box */}
       <Box
         borderStyle="single"
-        borderColor={theme.border.default}
+        borderColor={Colors.Gray}
         flexDirection="column"
         padding={1}
         width="100%"

@@ -7,56 +7,26 @@
 import type { CommandModule } from 'yargs';
 import {
   installExtension,
-  requestConsentNonInteractive,
+  type ExtensionInstallMetadata,
 } from '../../config/extension.js';
-import type { ExtensionInstallMetadata } from '@qwen-code/qwen-code-core';
+
 import { getErrorMessage } from '../../utils/errors.js';
-import { stat } from 'node:fs/promises';
 
 interface InstallArgs {
-  source: string;
-  ref?: string;
-  autoUpdate?: boolean;
+  source?: string;
+  path?: string;
 }
 
 export async function handleInstall(args: InstallArgs) {
   try {
-    let installMetadata: ExtensionInstallMetadata;
-    const { source } = args;
-    if (
-      source.startsWith('http://') ||
-      source.startsWith('https://') ||
-      source.startsWith('git@') ||
-      source.startsWith('sso://')
-    ) {
-      installMetadata = {
-        source,
-        type: 'git',
-        ref: args.ref,
-        autoUpdate: args.autoUpdate,
-      };
-    } else {
-      if (args.ref || args.autoUpdate) {
-        throw new Error(
-          '--ref and --auto-update are not applicable for local extensions.',
-        );
-      }
-      try {
-        await stat(source);
-        installMetadata = {
-          source,
-          type: 'local',
-        };
-      } catch {
-        throw new Error('Install source not found.');
-      }
-    }
-
-    const name = await installExtension(
-      installMetadata,
-      requestConsentNonInteractive,
+    const installMetadata: ExtensionInstallMetadata = {
+      source: (args.source || args.path) as string,
+      type: args.source ? 'git' : 'local',
+    };
+    const extensionName = await installExtension(installMetadata);
+    console.log(
+      `Extension "${extensionName}" installed successfully and enabled.`,
     );
-    console.log(`Extension "${name}" installed successfully and enabled.`);
   } catch (error) {
     console.error(getErrorMessage(error));
     process.exit(1);
@@ -64,34 +34,31 @@ export async function handleInstall(args: InstallArgs) {
 }
 
 export const installCommand: CommandModule = {
-  command: 'install <source>',
-  describe: 'Installs an extension from a git repository URL or a local path.',
+  command: 'install [--source | --path ]',
+  describe: 'Installs an extension from a git repository or a local path.',
   builder: (yargs) =>
     yargs
-      .positional('source', {
-        describe: 'The github URL or local path of the extension to install.',
-        type: 'string',
-        demandOption: true,
-      })
-      .option('ref', {
-        describe: 'The git ref to install from.',
+      .option('source', {
+        describe: 'The git URL of the extension to install.',
         type: 'string',
       })
-      .option('auto-update', {
-        describe: 'Enable auto-update for this extension.',
-        type: 'boolean',
+      .option('path', {
+        describe: 'Path to a local extension directory.',
+        type: 'string',
       })
+      .conflicts('source', 'path')
       .check((argv) => {
-        if (!argv.source) {
-          throw new Error('The source argument must be provided.');
+        if (!argv.source && !argv.path) {
+          throw new Error(
+            'Either a git URL --source or a --path must be provided.',
+          );
         }
         return true;
       }),
   handler: async (argv) => {
     await handleInstall({
-      source: argv['source'] as string,
-      ref: argv['ref'] as string | undefined,
-      autoUpdate: argv['auto-update'] as boolean | undefined,
+      source: argv['source'] as string | undefined,
+      path: argv['path'] as string | undefined,
     });
   },
 };

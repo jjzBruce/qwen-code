@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { theme } from '../semantic-colors.js';
+import { Colors } from '../colors.js';
 
 // --- Thresholds ---
 export const TOOL_SUCCESS_RATE_HIGH = 95;
@@ -19,17 +19,14 @@ export const CACHE_EFFICIENCY_MEDIUM = 15;
 // --- Color Logic ---
 export const getStatusColor = (
   value: number,
-  thresholds: { green: number; yellow: number; red?: number },
+  thresholds: { green: number; yellow: number },
   options: { defaultColor?: string } = {},
 ) => {
   if (value >= thresholds.green) {
-    return theme.status.success;
+    return Colors.AccentGreen;
   }
   if (value >= thresholds.yellow) {
-    return theme.status.warning;
+    return Colors.AccentYellow;
   }
-  if (thresholds.red != null && value >= thresholds.red) {
-    return theme.status.error;
-  }
-  return options.defaultColor ?? theme.status.error;
+  return options.defaultColor || Colors.AccentRed;
 };

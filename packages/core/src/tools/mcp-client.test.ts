@@ -4,24 +4,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import * as GenAiLib from '@google/genai';
-import * as ClientLib from '@modelcontextprotocol/sdk/client/index.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import {
+  populateMcpServerCommand,
+  createTransport,
+  isEnabled,
+  hasValidTypes,
+  McpClient,
+  hasNetworkTransport,
+} from './mcp-client.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import * as SdkClientStdioLib from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AuthProviderType, type Config } from '../config/config.js';
+import * as ClientLib from '@modelcontextprotocol/sdk/client/index.js';
+import * as GenAiLib from '@google/genai';
 import { GoogleCredentialProvider } from '../mcp/google-auth-provider.js';
+import { AuthProviderType } from '../config/config.js';
 import type { PromptRegistry } from '../prompts/prompt-registry.js';
-import type { WorkspaceContext } from '../utils/workspaceContext.js';
-import {
-  createTransport,
-  hasNetworkTransport,
-  isEnabled,
-  McpClient,
-  populateMcpServerCommand,
-} from './mcp-client.js';
 import type { ToolRegistry } from './tool-registry.js';
+import type { WorkspaceContext } from '../utils/workspaceContext.js';
 
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js');
 vi.mock('@modelcontextprotocol/sdk/client/index.js');
@@ -73,11 +74,11 @@ describe('mcp-client', () => {
         false,
       );
       await client.connect();
-      await client.discover({} as Config);
+      await client.discover();
       expect(mockedMcpToTool).toHaveBeenCalledOnce();
     });
 
-    it('should not skip tools even if a parameter is missing a type', async () => {
+    it('should skip tools if a parameter is missing a type', async () => {
       const consoleWarnSpy = vi
         .spyOn(console, 'warn')
         .mockImplementation(() => {});
@@ -135,9 +136,13 @@ describe('mcp-client', () => {
         false,
       );
       await client.connect();
-      await client.discover({} as Config);
-      expect(mockedToolRegistry.registerTool).toHaveBeenCalledTimes(2);
-      expect(consoleWarnSpy).not.toHaveBeenCalled();
+      await client.discover();
+      expect(mockedToolRegistry.registerTool).toHaveBeenCalledOnce();
+      expect(consoleWarnSpy).toHaveBeenCalledOnce();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        `Skipping tool 'invalidTool' from MCP server 'test-server' because it has ` +
+          `missing types in its parameter schema. Please file an issue with the owner of the MCP server.`,
+      );
       consoleWarnSpy.mockRestore();
     });
 
@@ -175,7 +180,7 @@ describe('mcp-client', () => {
         false,
       );
       await client.connect();
-      await expect(client.discover({} as Config)).rejects.toThrow(
+      await expect(client.discover()).rejects.toThrow(
         'No prompts or tools found on the server.',
       );
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -401,6 +406,165 @@ describe('mcp-client', () => {
       expect(isEnabled(namelessFuncDecl, serverName, mcpServerConfig)).toBe(
         false,
       );
+    });
+  });
+
+  describe('hasValidTypes', () => {
+    it('should return true for a valid schema with anyOf', () => {
+      const schema = {
+        anyOf: [{ type: 'string' }, { type: 'number' }],
+      };
+      expect(hasValidTypes(schema)).toBe(true);
+    });
+
+    it('should return false for an invalid schema with anyOf', () => {
+      const schema = {
+        anyOf: [{ type: 'string' }, { description: 'no type' }],
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return true for a valid schema with allOf', () => {
+      const schema = {
+        allOf: [
+          { type: 'string' },
+          { type: 'object', properties: { foo: { type: 'string' } } },
+        ],
+      };
+      expect(hasValidTypes(schema)).toBe(true);
+    });
+
+    it('should return false for an invalid schema with allOf', () => {
+      const schema = {
+        allOf: [{ type: 'string' }, { description: 'no type' }],
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return true for a valid schema with oneOf', () => {
+      const schema = {
+        oneOf: [{ type: 'string' }, { type: 'number' }],
+      };
+      expect(hasValidTypes(schema)).toBe(true);
+    });
+
+    it('should return false for an invalid schema with oneOf', () => {
+      const schema = {
+        oneOf: [{ type: 'string' }, { description: 'no type' }],
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return true for a valid schema with nested subschemas', () => {
+      const schema = {
+        anyOf: [
+          { type: 'string' },
+          {
+            allOf: [
+              { type: 'object', properties: { a: { type: 'string' } } },
+              { type: 'object', properties: { b: { type: 'number' } } },
+            ],
+          },
+        ],
+      };
+      expect(hasValidTypes(schema)).toBe(true);
+    });
+
+    it('should return false for an invalid schema with nested subschemas', () => {
+      const schema = {
+        anyOf: [
+          { type: 'string' },
+          {
+            allOf: [
+              { type: 'object', properties: { a: { type: 'string' } } },
+              { description: 'no type' },
+            ],
+          },
+        ],
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return true for a schema with a type and subschemas', () => {
+      const schema = {
+        type: 'string',
+        anyOf: [{ minLength: 1 }, { maxLength: 5 }],
+      };
+      expect(hasValidTypes(schema)).toBe(true);
+    });
+
+    it('should return false for a schema with no type and no subschemas', () => {
+      const schema = {
+        description: 'a schema with no type',
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return true for a valid schema', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          param1: { type: 'string' },
+        },
+      };
+      expect(hasValidTypes(schema)).toBe(true);
+    });
+
+    it('should return false if a parameter is missing a type', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          param1: { description: 'a param with no type' },
+        },
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return false if a nested parameter is missing a type', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          param1: {
+            type: 'object',
+            properties: {
+              nestedParam: {
+                description: 'a nested param with no type',
+              },
+            },
+          },
+        },
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return false if an array item is missing a type', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          param1: {
+            type: 'array',
+            items: {
+              description: 'an array item with no type',
+            },
+          },
+        },
+      };
+      expect(hasValidTypes(schema)).toBe(false);
+    });
+
+    it('should return true for a schema with no properties', () => {
+      const schema = {
+        type: 'object',
+      };
+      expect(hasValidTypes(schema)).toBe(true);
+    });
+
+    it('should return true for a schema with an empty properties object', () => {
+      const schema = {
+        type: 'object',
+        properties: {},
+      };
+      expect(hasValidTypes(schema)).toBe(true);
     });
   });
 

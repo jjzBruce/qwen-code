@@ -4,85 +4,113 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export const IDE_DEFINITIONS = {
-  devin: { name: 'devin', displayName: 'Devin' },
-  replit: { name: 'replit', displayName: 'Replit' },
-  cursor: { name: 'cursor', displayName: 'Cursor' },
-  cloudshell: { name: 'cloudshell', displayName: 'Cloud Shell' },
-  codespaces: { name: 'codespaces', displayName: 'GitHub Codespaces' },
-  firebasestudio: { name: 'firebasestudio', displayName: 'Firebase Studio' },
-  trae: { name: 'trae', displayName: 'Trae' },
-  vscode: { name: 'vscode', displayName: 'VS Code' },
-  vscodefork: { name: 'vscodefork', displayName: 'IDE' },
-} as const;
+export enum DetectedIde {
+  Devin = 'devin',
+  Replit = 'replit',
+  Cursor = 'cursor',
+  CloudShell = 'cloudshell',
+  Codespaces = 'codespaces',
+  FirebaseStudio = 'firebasestudio',
+  Trae = 'trae',
+  VSCode = 'vscode',
+  VSCodeFork = 'vscodefork',
+}
 
 export interface IdeInfo {
-  name: string;
   displayName: string;
 }
 
-export function isCloudShell(): boolean {
-  return !!(process.env['EDITOR_IN_CLOUD_SHELL'] || process.env['CLOUD_SHELL']);
+export function getIdeInfo(ide: DetectedIde): IdeInfo {
+  switch (ide) {
+    case DetectedIde.Devin:
+      return {
+        displayName: 'Devin',
+      };
+    case DetectedIde.Replit:
+      return {
+        displayName: 'Replit',
+      };
+    case DetectedIde.Cursor:
+      return {
+        displayName: 'Cursor',
+      };
+    case DetectedIde.CloudShell:
+      return {
+        displayName: 'Cloud Shell',
+      };
+    case DetectedIde.Codespaces:
+      return {
+        displayName: 'GitHub Codespaces',
+      };
+    case DetectedIde.FirebaseStudio:
+      return {
+        displayName: 'Firebase Studio',
+      };
+    case DetectedIde.Trae:
+      return {
+        displayName: 'Trae',
+      };
+    case DetectedIde.VSCode:
+      return {
+        displayName: 'VS Code',
+      };
+    case DetectedIde.VSCodeFork:
+      return {
+        displayName: 'IDE',
+      };
+    default: {
+      // This ensures that if a new IDE is added to the enum, we get a compile-time error.
+      const exhaustiveCheck: never = ide;
+      return exhaustiveCheck;
+    }
+  }
 }
 
-export function detectIdeFromEnv(): IdeInfo {
+export function detectIdeFromEnv(): DetectedIde {
   if (process.env['__COG_BASHRC_SOURCED']) {
-    return IDE_DEFINITIONS.devin;
+    return DetectedIde.Devin;
   }
   if (process.env['REPLIT_USER']) {
-    return IDE_DEFINITIONS.replit;
+    return DetectedIde.Replit;
   }
   if (process.env['CURSOR_TRACE_ID']) {
-    return IDE_DEFINITIONS.cursor;
+    return DetectedIde.Cursor;
   }
   if (process.env['CODESPACES']) {
-    return IDE_DEFINITIONS.codespaces;
+    return DetectedIde.Codespaces;
   }
-  if (isCloudShell()) {
-    return IDE_DEFINITIONS.cloudshell;
+  if (process.env['EDITOR_IN_CLOUD_SHELL'] || process.env['CLOUD_SHELL']) {
+    return DetectedIde.CloudShell;
   }
   if (process.env['TERM_PRODUCT'] === 'Trae') {
-    return IDE_DEFINITIONS.trae;
+    return DetectedIde.Trae;
   }
   if (process.env['MONOSPACE_ENV']) {
-    return IDE_DEFINITIONS.firebasestudio;
+    return DetectedIde.FirebaseStudio;
   }
-  return IDE_DEFINITIONS.vscode;
+  return DetectedIde.VSCode;
 }
 
 function verifyVSCode(
-  ide: IdeInfo,
+  ide: DetectedIde,
   ideProcessInfo: {
     pid: number;
     command: string;
   },
-): IdeInfo {
-  if (ide.name !== IDE_DEFINITIONS.vscode.name) {
+): DetectedIde {
+  if (ide !== DetectedIde.VSCode) {
     return ide;
   }
-  if (
-    ideProcessInfo.command &&
-    ideProcessInfo.command.toLowerCase().includes('code')
-  ) {
-    return IDE_DEFINITIONS.vscode;
+  if (ideProcessInfo.command.toLowerCase().includes('code')) {
+    return DetectedIde.VSCode;
   }
-  return IDE_DEFINITIONS.vscodefork;
+  return DetectedIde.VSCodeFork;
 }
 
-export function detectIde(
-  ideProcessInfo: {
-    pid: number;
-    command: string;
-  },
-  ideInfoFromFile?: { name?: string; displayName?: string },
-): IdeInfo | undefined {
-  if (ideInfoFromFile?.name && ideInfoFromFile.displayName) {
-    return {
-      name: ideInfoFromFile.name,
-      displayName: ideInfoFromFile.displayName,
-    };
-  }
-
+export function detectIde(ideProcessInfo: {
+  pid: number;
+  command: string;
+}): DetectedIde | undefined {
   // Only VSCode-based integrations are currently supported.
   if (process.env['TERM_PROGRAM'] !== 'vscode') {
     return undefined;

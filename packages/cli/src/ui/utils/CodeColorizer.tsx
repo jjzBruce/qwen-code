@@ -31,9 +31,8 @@ function renderHastNode(
   inheritedColor: string | undefined,
 ): React.ReactNode {
   if (node.type === 'text') {
-    // Use the color passed down from parent element, or the theme's default.
-    const color = inheritedColor || theme.defaultColor;
-    return <Text color={color}>{node.value}</Text>;
+    // Use the color passed down from parent element, if any
+    return <Text color={inheritedColor}>{node.value}</Text>;
   }
 
   // Handle Element Nodes: Determine color and pass it down, don't wrap

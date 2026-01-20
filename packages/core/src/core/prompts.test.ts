@@ -10,13 +10,12 @@ import {
   getCustomSystemPrompt,
   getSubagentSystemReminder,
   getPlanModeSystemReminder,
-  resolvePathFromEnv,
 } from './prompts.js';
 import { isGitRepository } from '../utils/gitUtils.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { QWEN_CONFIG_DIR } from '../tools/memoryTool.js';
+import { GEMINI_CONFIG_DIR } from '../tools/memoryTool.js';
 
 // Mock tool names if they are dynamically generated or complex
 vi.mock('../tools/ls', () => ({ LSTool: { Name: 'list_directory' } }));
@@ -41,8 +40,8 @@ vi.mock('node:fs');
 describe('Core System Prompt (prompts.ts)', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.stubEnv('QWEN_SYSTEM_MD', undefined);
-    vi.stubEnv('QWEN_WRITE_SYSTEM_MD', undefined);
+    vi.stubEnv('GEMINI_SYSTEM_MD', undefined);
+    vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', undefined);
   });
 
   it('should return the base prompt when no userMemory is provided', () => {
@@ -123,33 +122,35 @@ describe('Core System Prompt (prompts.ts)', () => {
     expect(prompt).toMatchSnapshot();
   });
 
-  describe('QWEN_SYSTEM_MD environment variable', () => {
-    it('should use default prompt when QWEN_SYSTEM_MD is "false"', () => {
-      vi.stubEnv('QWEN_SYSTEM_MD', 'false');
+  describe('GEMINI_SYSTEM_MD environment variable', () => {
+    it('should use default prompt when GEMINI_SYSTEM_MD is "false"', () => {
+      vi.stubEnv('GEMINI_SYSTEM_MD', 'false');
       const prompt = getCoreSystemPrompt();
       expect(fs.readFileSync).not.toHaveBeenCalled();
       expect(prompt).not.toContain('custom system prompt');
     });
 
-    it('should use default prompt when QWEN_SYSTEM_MD is "0"', () => {
-      vi.stubEnv('QWEN_SYSTEM_MD', '0');
+    it('should use default prompt when GEMINI_SYSTEM_MD is "0"', () => {
+      vi.stubEnv('GEMINI_SYSTEM_MD', '0');
       const prompt = getCoreSystemPrompt();
       expect(fs.readFileSync).not.toHaveBeenCalled();
       expect(prompt).not.toContain('custom system prompt');
     });
 
-    it('should throw error if QWEN_SYSTEM_MD points to a non-existent file', () => {
+    it('should throw error if GEMINI_SYSTEM_MD points to a non-existent file', () => {
       const customPath = '/non/existent/path/system.md';
-      vi.stubEnv('QWEN_SYSTEM_MD', customPath);
+      vi.stubEnv('GEMINI_SYSTEM_MD', customPath);
       vi.mocked(fs.existsSync).mockReturnValue(false);
       expect(() => getCoreSystemPrompt()).toThrow(
         `missing system prompt file '${path.resolve(customPath)}'`,
       );
     });
 
-    it('should read from default path when QWEN_SYSTEM_MD is "true"', () => {
-      const defaultPath = path.resolve(path.join(QWEN_CONFIG_DIR, 'system.md'));
-      vi.stubEnv('QWEN_SYSTEM_MD', 'true');
+    it('should read from default path when GEMINI_SYSTEM_MD is "true"', () => {
+      const defaultPath = path.resolve(
+        path.join(GEMINI_CONFIG_DIR, 'system.md'),
+      );
+      vi.stubEnv('GEMINI_SYSTEM_MD', 'true');
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue('custom system prompt');
 
@@ -158,9 +159,11 @@ describe('Core System Prompt (prompts.ts)', () => {
       expect(prompt).toBe('custom system prompt');
     });
 
-    it('should read from default path when QWEN_SYSTEM_MD is "1"', () => {
-      const defaultPath = path.resolve(path.join(QWEN_CONFIG_DIR, 'system.md'));
-      vi.stubEnv('QWEN_SYSTEM_MD', '1');
+    it('should read from default path when GEMINI_SYSTEM_MD is "1"', () => {
+      const defaultPath = path.resolve(
+        path.join(GEMINI_CONFIG_DIR, 'system.md'),
+      );
+      vi.stubEnv('GEMINI_SYSTEM_MD', '1');
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue('custom system prompt');
 
@@ -169,9 +172,9 @@ describe('Core System Prompt (prompts.ts)', () => {
       expect(prompt).toBe('custom system prompt');
     });
 
-    it('should read from custom path when QWEN_SYSTEM_MD provides one, preserving case', () => {
+    it('should read from custom path when GEMINI_SYSTEM_MD provides one, preserving case', () => {
       const customPath = path.resolve('/custom/path/SyStEm.Md');
-      vi.stubEnv('QWEN_SYSTEM_MD', customPath);
+      vi.stubEnv('GEMINI_SYSTEM_MD', customPath);
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue('custom system prompt');
 
@@ -180,12 +183,12 @@ describe('Core System Prompt (prompts.ts)', () => {
       expect(prompt).toBe('custom system prompt');
     });
 
-    it('should expand tilde in custom path when QWEN_SYSTEM_MD is set', () => {
+    it('should expand tilde in custom path when GEMINI_SYSTEM_MD is set', () => {
       const homeDir = '/Users/test';
       vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
       const customPath = '~/custom/system.md';
       const expectedPath = path.join(homeDir, 'custom/system.md');
-      vi.stubEnv('QWEN_SYSTEM_MD', customPath);
+      vi.stubEnv('GEMINI_SYSTEM_MD', customPath);
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue('custom system prompt');
 
@@ -198,22 +201,24 @@ describe('Core System Prompt (prompts.ts)', () => {
     });
   });
 
-  describe('QWEN_WRITE_SYSTEM_MD environment variable', () => {
-    it('should not write to file when QWEN_WRITE_SYSTEM_MD is "false"', () => {
-      vi.stubEnv('QWEN_WRITE_SYSTEM_MD', 'false');
+  describe('GEMINI_WRITE_SYSTEM_MD environment variable', () => {
+    it('should not write to file when GEMINI_WRITE_SYSTEM_MD is "false"', () => {
+      vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', 'false');
       getCoreSystemPrompt();
       expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
 
-    it('should not write to file when QWEN_WRITE_SYSTEM_MD is "0"', () => {
-      vi.stubEnv('QWEN_WRITE_SYSTEM_MD', '0');
+    it('should not write to file when GEMINI_WRITE_SYSTEM_MD is "0"', () => {
+      vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', '0');
       getCoreSystemPrompt();
       expect(fs.writeFileSync).not.toHaveBeenCalled();
     });
 
-    it('should write to default path when QWEN_WRITE_SYSTEM_MD is "true"', () => {
-      const defaultPath = path.resolve(path.join(QWEN_CONFIG_DIR, 'system.md'));
-      vi.stubEnv('QWEN_WRITE_SYSTEM_MD', 'true');
+    it('should write to default path when GEMINI_WRITE_SYSTEM_MD is "true"', () => {
+      const defaultPath = path.resolve(
+        path.join(GEMINI_CONFIG_DIR, 'system.md'),
+      );
+      vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', 'true');
       getCoreSystemPrompt();
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         defaultPath,
@@ -221,9 +226,11 @@ describe('Core System Prompt (prompts.ts)', () => {
       );
     });
 
-    it('should write to default path when QWEN_WRITE_SYSTEM_MD is "1"', () => {
-      const defaultPath = path.resolve(path.join(QWEN_CONFIG_DIR, 'system.md'));
-      vi.stubEnv('QWEN_WRITE_SYSTEM_MD', '1');
+    it('should write to default path when GEMINI_WRITE_SYSTEM_MD is "1"', () => {
+      const defaultPath = path.resolve(
+        path.join(GEMINI_CONFIG_DIR, 'system.md'),
+      );
+      vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', '1');
       getCoreSystemPrompt();
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         defaultPath,
@@ -231,9 +238,9 @@ describe('Core System Prompt (prompts.ts)', () => {
       );
     });
 
-    it('should write to custom path when QWEN_WRITE_SYSTEM_MD provides one', () => {
+    it('should write to custom path when GEMINI_WRITE_SYSTEM_MD provides one', () => {
       const customPath = path.resolve('/custom/path/system.md');
-      vi.stubEnv('QWEN_WRITE_SYSTEM_MD', customPath);
+      vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', customPath);
       getCoreSystemPrompt();
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         customPath,
@@ -241,12 +248,12 @@ describe('Core System Prompt (prompts.ts)', () => {
       );
     });
 
-    it('should expand tilde in custom path when QWEN_WRITE_SYSTEM_MD is set', () => {
+    it('should expand tilde in custom path when GEMINI_WRITE_SYSTEM_MD is set', () => {
       const homeDir = '/Users/test';
       vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
       const customPath = '~/custom/system.md';
       const expectedPath = path.join(homeDir, 'custom/system.md');
-      vi.stubEnv('QWEN_WRITE_SYSTEM_MD', customPath);
+      vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', customPath);
       getCoreSystemPrompt();
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         path.resolve(expectedPath),
@@ -254,18 +261,111 @@ describe('Core System Prompt (prompts.ts)', () => {
       );
     });
 
-    it('should expand tilde in custom path when QWEN_WRITE_SYSTEM_MD is just ~', () => {
+    it('should expand tilde in custom path when GEMINI_WRITE_SYSTEM_MD is just ~', () => {
       const homeDir = '/Users/test';
       vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
       const customPath = '~';
       const expectedPath = homeDir;
-      vi.stubEnv('QWEN_WRITE_SYSTEM_MD', customPath);
+      vi.stubEnv('GEMINI_WRITE_SYSTEM_MD', customPath);
       getCoreSystemPrompt();
       expect(fs.writeFileSync).toHaveBeenCalledWith(
         path.resolve(expectedPath),
         expect.any(String),
       );
     });
+  });
+});
+
+describe('URL matching with trailing slash compatibility', () => {
+  it('should match URLs with and without trailing slash', () => {
+    const config = {
+      systemPromptMappings: [
+        {
+          baseUrls: ['https://api.example.com'],
+          modelNames: ['gpt-4'],
+          template: 'Custom template for example.com',
+        },
+        {
+          baseUrls: ['https://api.openai.com/'],
+          modelNames: ['gpt-3.5-turbo'],
+          template: 'Custom template for openai.com',
+        },
+      ],
+    };
+
+    // Simulate environment variables
+    const originalEnv = process.env;
+
+    // Test case 1: No trailing slash in config, actual URL has trailing slash
+    process.env = {
+      ...originalEnv,
+      OPENAI_BASE_URL: 'https://api.example.com/',
+      OPENAI_MODEL: 'gpt-4',
+    };
+
+    const result1 = getCoreSystemPrompt(undefined, config);
+    expect(result1).toContain('Custom template for example.com');
+
+    // Test case 2: Config has trailing slash, actual URL has no trailing slash
+    process.env = {
+      ...originalEnv,
+      OPENAI_BASE_URL: 'https://api.openai.com',
+      OPENAI_MODEL: 'gpt-3.5-turbo',
+    };
+
+    const result2 = getCoreSystemPrompt(undefined, config);
+    expect(result2).toContain('Custom template for openai.com');
+
+    // Test case 3: No trailing slash in config, actual URL has no trailing slash
+    process.env = {
+      ...originalEnv,
+      OPENAI_BASE_URL: 'https://api.example.com',
+      OPENAI_MODEL: 'gpt-4',
+    };
+
+    const result3 = getCoreSystemPrompt(undefined, config);
+    expect(result3).toContain('Custom template for example.com');
+
+    // Test case 4: Config has trailing slash, actual URL has trailing slash
+    process.env = {
+      ...originalEnv,
+      OPENAI_BASE_URL: 'https://api.openai.com/',
+      OPENAI_MODEL: 'gpt-3.5-turbo',
+    };
+
+    const result4 = getCoreSystemPrompt(undefined, config);
+    expect(result4).toContain('Custom template for openai.com');
+
+    // Restore original environment variables
+    process.env = originalEnv;
+  });
+
+  it('should not match when URLs are different', () => {
+    const config = {
+      systemPromptMappings: [
+        {
+          baseUrls: ['https://api.example.com'],
+          modelNames: ['gpt-4'],
+          template: 'Custom template for example.com',
+        },
+      ],
+    };
+
+    const originalEnv = process.env;
+
+    // Test case: URLs do not match
+    process.env = {
+      ...originalEnv,
+      OPENAI_BASE_URL: 'https://api.different.com',
+      OPENAI_MODEL: 'gpt-4',
+    };
+
+    const result = getCoreSystemPrompt(undefined, config);
+    // Should return default template, not contain custom template
+    expect(result).not.toContain('Custom template for example.com');
+
+    // Restore original environment variables
+    process.env = originalEnv;
   });
 });
 
@@ -277,7 +377,7 @@ describe('Model-specific tool call formats', () => {
 
   it('should use XML format for qwen3-coder model', () => {
     vi.mocked(isGitRepository).mockReturnValue(false);
-    const prompt = getCoreSystemPrompt(undefined, 'qwen3-coder-7b');
+    const prompt = getCoreSystemPrompt(undefined, undefined, 'qwen3-coder-7b');
 
     // Should contain XML-style tool calls
     expect(prompt).toContain('<tool_call>');
@@ -297,7 +397,7 @@ describe('Model-specific tool call formats', () => {
 
   it('should use JSON format for qwen-vl model', () => {
     vi.mocked(isGitRepository).mockReturnValue(false);
-    const prompt = getCoreSystemPrompt(undefined, 'qwen-vl-max');
+    const prompt = getCoreSystemPrompt(undefined, undefined, 'qwen-vl-max');
 
     // Should contain JSON-style tool calls
     expect(prompt).toContain('<tool_call>');
@@ -317,7 +417,7 @@ describe('Model-specific tool call formats', () => {
 
   it('should use bracket format for generic models', () => {
     vi.mocked(isGitRepository).mockReturnValue(false);
-    const prompt = getCoreSystemPrompt(undefined, 'gpt-4');
+    const prompt = getCoreSystemPrompt(undefined, undefined, 'gpt-4');
 
     // Should contain bracket-style tool calls
     expect(prompt).toContain('[tool_call: run_shell_command for');
@@ -351,7 +451,11 @@ describe('Model-specific tool call formats', () => {
   it('should preserve model-specific formats with user memory', () => {
     vi.mocked(isGitRepository).mockReturnValue(false);
     const userMemory = 'User prefers concise responses.';
-    const prompt = getCoreSystemPrompt(userMemory, 'qwen3-coder-14b');
+    const prompt = getCoreSystemPrompt(
+      userMemory,
+      undefined,
+      'qwen3-coder-14b',
+    );
 
     // Should contain XML-style tool calls
     expect(prompt).toContain('<tool_call>');
@@ -367,7 +471,7 @@ describe('Model-specific tool call formats', () => {
   it('should preserve model-specific formats with sandbox environment', () => {
     vi.stubEnv('SANDBOX', 'true');
     vi.mocked(isGitRepository).mockReturnValue(false);
-    const prompt = getCoreSystemPrompt(undefined, 'qwen-vl-plus');
+    const prompt = getCoreSystemPrompt(undefined, undefined, 'qwen-vl-plus');
 
     // Should contain JSON-style tool calls
     expect(prompt).toContain('{"name": "run_shell_command"');
@@ -468,155 +572,5 @@ describe('getPlanModeSystemReminder', () => {
     const result2 = getPlanModeSystemReminder();
 
     expect(result1).toBe(result2);
-  });
-});
-
-describe('resolvePathFromEnv helper function', () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-  });
-
-  describe('when envVar is undefined, empty, or whitespace', () => {
-    it('should return null for undefined', () => {
-      const result = resolvePathFromEnv(undefined);
-      expect(result).toEqual({
-        isSwitch: false,
-        value: null,
-        isDisabled: false,
-      });
-    });
-
-    it('should return null for empty string', () => {
-      const result = resolvePathFromEnv('');
-      expect(result).toEqual({
-        isSwitch: false,
-        value: null,
-        isDisabled: false,
-      });
-    });
-
-    it('should return null for whitespace only', () => {
-      const result = resolvePathFromEnv('   \n\t  ');
-      expect(result).toEqual({
-        isSwitch: false,
-        value: null,
-        isDisabled: false,
-      });
-    });
-  });
-
-  describe('when envVar is a boolean-like string', () => {
-    it('should handle "0" as disabled switch', () => {
-      const result = resolvePathFromEnv('0');
-      expect(result).toEqual({
-        isSwitch: true,
-        value: '0',
-        isDisabled: true,
-      });
-    });
-
-    it('should handle "false" as disabled switch', () => {
-      const result = resolvePathFromEnv('false');
-      expect(result).toEqual({
-        isSwitch: true,
-        value: 'false',
-        isDisabled: true,
-      });
-    });
-
-    it('should handle "1" as enabled switch', () => {
-      const result = resolvePathFromEnv('1');
-      expect(result).toEqual({
-        isSwitch: true,
-        value: '1',
-        isDisabled: false,
-      });
-    });
-
-    it('should handle "true" as enabled switch', () => {
-      const result = resolvePathFromEnv('true');
-      expect(result).toEqual({
-        isSwitch: true,
-        value: 'true',
-        isDisabled: false,
-      });
-    });
-
-    it('should be case-insensitive for boolean values', () => {
-      expect(resolvePathFromEnv('FALSE')).toEqual({
-        isSwitch: true,
-        value: 'false',
-        isDisabled: true,
-      });
-      expect(resolvePathFromEnv('TRUE')).toEqual({
-        isSwitch: true,
-        value: 'true',
-        isDisabled: false,
-      });
-    });
-  });
-
-  describe('when envVar is a file path', () => {
-    it('should resolve absolute paths', () => {
-      const result = resolvePathFromEnv('/absolute/path/file.txt');
-      expect(result).toEqual({
-        isSwitch: false,
-        value: path.resolve('/absolute/path/file.txt'),
-        isDisabled: false,
-      });
-    });
-
-    it('should resolve relative paths', () => {
-      const result = resolvePathFromEnv('relative/path/file.txt');
-      expect(result).toEqual({
-        isSwitch: false,
-        value: path.resolve('relative/path/file.txt'),
-        isDisabled: false,
-      });
-    });
-
-    it('should expand tilde to home directory', () => {
-      const homeDir = '/Users/test';
-      vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
-
-      const result = resolvePathFromEnv('~/documents/file.txt');
-      expect(result).toEqual({
-        isSwitch: false,
-        value: path.resolve(path.join(homeDir, 'documents/file.txt')),
-        isDisabled: false,
-      });
-    });
-
-    it('should handle standalone tilde', () => {
-      const homeDir = '/Users/test';
-      vi.spyOn(os, 'homedir').mockReturnValue(homeDir);
-
-      const result = resolvePathFromEnv('~');
-      expect(result).toEqual({
-        isSwitch: false,
-        value: path.resolve(homeDir),
-        isDisabled: false,
-      });
-    });
-
-    it('should handle os.homedir() errors gracefully', () => {
-      vi.spyOn(os, 'homedir').mockImplementation(() => {
-        throw new Error('Cannot resolve home directory');
-      });
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-      const result = resolvePathFromEnv('~/documents/file.txt');
-      expect(result).toEqual({
-        isSwitch: false,
-        value: null,
-        isDisabled: false,
-      });
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Could not resolve home directory for path: ~/documents/file.txt',
-        expect.any(Error),
-      );
-
-      consoleSpy.mockRestore();
-    });
   });
 });

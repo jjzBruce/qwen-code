@@ -4,25 +4,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  type Mock,
-} from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { GitService } from './gitService.js';
 import { Storage } from '../config/storage.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
+import type { ChildProcess } from 'node:child_process';
 import { getProjectHash, QWEN_DIR } from '../utils/paths.js';
-import { spawnAsync } from '../utils/shell-utils.js';
 
-vi.mock('../utils/shell-utils.js', () => ({
-  spawnAsync: vi.fn(),
+const hoistedMockExec = vi.hoisted(() => vi.fn());
+vi.mock('node:child_process', () => ({
+  exec: hoistedMockExec,
 }));
 
 const hoistedMockEnv = vi.hoisted(() => vi.fn());
@@ -76,9 +69,13 @@ describe('GitService', () => {
 
     vi.clearAllMocks();
     hoistedIsGitRepositoryMock.mockReturnValue(true);
-    (spawnAsync as Mock).mockResolvedValue({
-      stdout: 'git version 2.0.0',
-      stderr: '',
+    hoistedMockExec.mockImplementation((command, callback) => {
+      if (command === 'git --version') {
+        callback(null, 'git version 2.0.0');
+      } else {
+        callback(new Error('Command not mocked'));
+      }
+      return {};
     });
 
     hoistedMockHomedir.mockReturnValue(homedir);
@@ -123,11 +120,13 @@ describe('GitService', () => {
     it('should resolve true if git --version command succeeds', async () => {
       const service = new GitService(projectRoot, storage);
       await expect(service.verifyGitAvailability()).resolves.toBe(true);
-      expect(spawnAsync).toHaveBeenCalledWith('git', ['--version']);
     });
 
     it('should resolve false if git --version command fails', async () => {
-      (spawnAsync as Mock).mockRejectedValue(new Error('git not found'));
+      hoistedMockExec.mockImplementation((command, callback) => {
+        callback(new Error('git not found'));
+        return {} as ChildProcess;
+      });
       const service = new GitService(projectRoot, storage);
       await expect(service.verifyGitAvailability()).resolves.toBe(false);
     });
@@ -135,7 +134,10 @@ describe('GitService', () => {
 
   describe('initialize', () => {
     it('should throw an error if Git is not available', async () => {
-      (spawnAsync as Mock).mockRejectedValue(new Error('git not found'));
+      hoistedMockExec.mockImplementation((command, callback) => {
+        callback(new Error('git not found'));
+        return {} as ChildProcess;
+      });
       const service = new GitService(projectRoot, storage);
       await expect(service.initialize()).rejects.toThrow(
         'Checkpointing is enabled, but Git is not installed. Please install Git or disable checkpointing to continue.',

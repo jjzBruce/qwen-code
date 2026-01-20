@@ -48,9 +48,6 @@ export class ContentGenerationPipeline {
       async (openaiRequest, context) => {
         const openaiResponse = (await this.client.chat.completions.create(
           openaiRequest,
-          {
-            signal: request.config?.abortSignal,
-          },
         )) as OpenAI.Chat.ChatCompletion;
 
         const geminiResponse =
@@ -81,9 +78,6 @@ export class ContentGenerationPipeline {
         // Stage 1: Create OpenAI stream
         const stream = (await this.client.chat.completions.create(
           openaiRequest,
-          {
-            signal: request.config?.abortSignal,
-          },
         )) as AsyncIterable<OpenAI.Chat.ChatCompletionChunk>;
 
         // Stage 2: Process stream with conversion and logging
@@ -227,12 +221,6 @@ export class ContentGenerationPipeline {
         mergedResponse.usageMetadata = lastResponse.usageMetadata;
       }
 
-      // Copy other essential properties from the current response
-      mergedResponse.responseId = response.responseId;
-      mergedResponse.createTime = response.createTime;
-      mergedResponse.modelVersion = response.modelVersion;
-      mergedResponse.promptFeedback = response.promptFeedback;
-
       // Update the collected responses with the merged response
       collectedGeminiResponses[collectedGeminiResponses.length - 1] =
         mergedResponse;
@@ -314,9 +302,9 @@ export class ContentGenerationPipeline {
     };
 
     const params = {
-      // Parameters with request fallback but no defaults
-      ...addParameterIfDefined('temperature', 'temperature', 'temperature'),
-      ...addParameterIfDefined('top_p', 'top_p', 'topP'),
+      // Parameters with request fallback and defaults
+      temperature: getParameterValue('temperature', 'temperature', 0.0),
+      top_p: getParameterValue('top_p', 'topP', 1.0),
 
       // Max tokens (special case: different property names)
       ...addParameterIfDefined('max_tokens', 'max_tokens', 'maxOutputTokens'),

@@ -15,7 +15,7 @@ import {
   StandardFileSystemService,
   ToolRegistry,
   COMMON_IGNORE_PATTERNS,
-  // DEFAULT_FILE_EXCLUDES,
+  DEFAULT_FILE_EXCLUDES,
 } from '@qwen-code/qwen-code-core';
 import * as os from 'node:os';
 import { ToolCallStatus } from '../types.js';
@@ -55,10 +55,10 @@ describe('handleAtCommand', () => {
       isSandboxed: () => false,
       getFileService: () => new FileDiscoveryService(testRootDir),
       getFileFilteringRespectGitIgnore: () => true,
-      getFileFilteringRespectQwenIgnore: () => true,
+      getFileFilteringRespectGeminiIgnore: () => true,
       getFileFilteringOptions: () => ({
         respectGitIgnore: true,
-        respectQwenIgnore: true,
+        respectGeminiIgnore: true,
       }),
       getFileSystemService: () => new StandardFileSystemService(),
       getEnableRecursiveFileSearch: vi.fn(() => true),
@@ -74,14 +74,12 @@ describe('handleAtCommand', () => {
       getDebugMode: () => false,
       getFileExclusions: () => ({
         getCoreIgnorePatterns: () => COMMON_IGNORE_PATTERNS,
-        getDefaultExcludePatterns: () => [],
-        getGlobExcludes: () => [],
-        buildExcludePatterns: () => [],
-        getReadManyFilesExcludes: () => [],
+        getDefaultExcludePatterns: () => DEFAULT_FILE_EXCLUDES,
+        getGlobExcludes: () => COMMON_IGNORE_PATTERNS,
+        buildExcludePatterns: () => DEFAULT_FILE_EXCLUDES,
+        getReadManyFilesExcludes: () => DEFAULT_FILE_EXCLUDES,
       }),
       getUsageStatisticsEnabled: () => false,
-      getTruncateToolOutputThreshold: () => 2500,
-      getTruncateToolOutputLines: () => 500,
     } as unknown as Config;
 
     const registry = new ToolRegistry(mockConfig);
@@ -580,17 +578,17 @@ describe('handleAtCommand', () => {
     });
   });
 
-  describe('qwen-ignore filtering', () => {
-    it('should skip qwen-ignored files in @ commands', async () => {
+  describe('gemini-ignore filtering', () => {
+    it('should skip gemini-ignored files in @ commands', async () => {
       await createTestFile(
         path.join(testRootDir, '.qwenignore'),
         'build/output.js',
       );
-      const qwenIgnoredFile = await createTestFile(
+      const geminiIgnoredFile = await createTestFile(
         path.join(testRootDir, 'build', 'output.js'),
         'console.log("Hello");',
       );
-      const query = `@${qwenIgnoredFile}`;
+      const query = `@${geminiIgnoredFile}`;
 
       const result = await handleAtCommand({
         query,
@@ -606,10 +604,10 @@ describe('handleAtCommand', () => {
         shouldProceed: true,
       });
       expect(mockOnDebugMessage).toHaveBeenCalledWith(
-        `Path ${qwenIgnoredFile} is qwen-ignored and will be skipped.`,
+        `Path ${geminiIgnoredFile} is gemini-ignored and will be skipped.`,
       );
       expect(mockOnDebugMessage).toHaveBeenCalledWith(
-        `Ignored 1 files:\nQwen-ignored: ${qwenIgnoredFile}`,
+        `Ignored 1 files:\nGemini-ignored: ${geminiIgnoredFile}`,
       );
     });
   });
@@ -645,7 +643,7 @@ describe('handleAtCommand', () => {
     });
   });
 
-  it('should handle mixed qwen-ignored and valid files', async () => {
+  it('should handle mixed gemini-ignored and valid files', async () => {
     await createTestFile(
       path.join(testRootDir, '.qwenignore'),
       'dist/bundle.js',
@@ -654,11 +652,11 @@ describe('handleAtCommand', () => {
       path.join(testRootDir, 'src', 'main.ts'),
       '// Main application entry',
     );
-    const qwenIgnoredFile = await createTestFile(
+    const geminiIgnoredFile = await createTestFile(
       path.join(testRootDir, 'dist', 'bundle.js'),
       'console.log("bundle");',
     );
-    const query = `@${validFile} @${qwenIgnoredFile}`;
+    const query = `@${validFile} @${geminiIgnoredFile}`;
 
     const result = await handleAtCommand({
       query,
@@ -671,7 +669,7 @@ describe('handleAtCommand', () => {
 
     expect(result).toEqual({
       processedQuery: [
-        { text: `@${validFile} @${qwenIgnoredFile}` },
+        { text: `@${validFile} @${geminiIgnoredFile}` },
         { text: '\n--- Content from referenced files ---' },
         { text: `\nContent from @${validFile}:\n` },
         { text: '// Main application entry' },
@@ -680,10 +678,10 @@ describe('handleAtCommand', () => {
       shouldProceed: true,
     });
     expect(mockOnDebugMessage).toHaveBeenCalledWith(
-      `Path ${qwenIgnoredFile} is qwen-ignored and will be skipped.`,
+      `Path ${geminiIgnoredFile} is gemini-ignored and will be skipped.`,
     );
     expect(mockOnDebugMessage).toHaveBeenCalledWith(
-      `Ignored 1 files:\nQwen-ignored: ${qwenIgnoredFile}`,
+      `Ignored 1 files:\nGemini-ignored: ${geminiIgnoredFile}`,
     );
   });
 

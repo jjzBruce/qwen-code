@@ -16,7 +16,7 @@ vi.mock('@qwen-code/qwen-code-core', async () => {
   return {
     ...actual,
     uiTelemetryService: {
-      setLastPromptTokenCount: vi.fn(),
+      resetLastPromptTokenCount: vi.fn(),
     },
   };
 });
@@ -57,8 +57,9 @@ describe('clearCommand', () => {
     expect(mockContext.ui.setDebugMessage).toHaveBeenCalledTimes(1);
 
     expect(mockResetChat).toHaveBeenCalledTimes(1);
-    expect(uiTelemetryService.setLastPromptTokenCount).toHaveBeenCalledWith(0);
-    expect(uiTelemetryService.setLastPromptTokenCount).toHaveBeenCalledTimes(1);
+    expect(uiTelemetryService.resetLastPromptTokenCount).toHaveBeenCalledTimes(
+      1,
+    );
     expect(mockContext.ui.clear).toHaveBeenCalledTimes(1);
 
     // Check the order of operations.
@@ -66,7 +67,7 @@ describe('clearCommand', () => {
       .invocationCallOrder[0];
     const resetChatOrder = mockResetChat.mock.invocationCallOrder[0];
     const resetTelemetryOrder = (
-      uiTelemetryService.setLastPromptTokenCount as Mock
+      uiTelemetryService.resetLastPromptTokenCount as Mock
     ).mock.invocationCallOrder[0];
     const clearOrder = (mockContext.ui.clear as Mock).mock
       .invocationCallOrder[0];
@@ -93,8 +94,9 @@ describe('clearCommand', () => {
       'Clearing terminal.',
     );
     expect(mockResetChat).not.toHaveBeenCalled();
-    expect(uiTelemetryService.setLastPromptTokenCount).toHaveBeenCalledWith(0);
-    expect(uiTelemetryService.setLastPromptTokenCount).toHaveBeenCalledTimes(1);
+    expect(uiTelemetryService.resetLastPromptTokenCount).toHaveBeenCalledTimes(
+      1,
+    );
     expect(nullConfigContext.ui.clear).toHaveBeenCalledTimes(1);
   });
 });

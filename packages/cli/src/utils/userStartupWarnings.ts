@@ -7,26 +7,19 @@
 import fs from 'node:fs/promises';
 import * as os from 'node:os';
 import path from 'node:path';
-import { canUseRipgrep } from '@qwen-code/qwen-code-core';
-
-type WarningCheckOptions = {
-  workspaceRoot: string;
-  useRipgrep: boolean;
-  useBuiltinRipgrep: boolean;
-};
 
 type WarningCheck = {
   id: string;
-  check: (options: WarningCheckOptions) => Promise<string | null>;
+  check: (workspaceRoot: string) => Promise<string | null>;
 };
 
 // Individual warning checks
 const homeDirectoryCheck: WarningCheck = {
   id: 'home-directory',
-  check: async (options: WarningCheckOptions) => {
+  check: async (workspaceRoot: string) => {
     try {
       const [workspaceRealPath, homeRealPath] = await Promise.all([
-        fs.realpath(options.workspaceRoot),
+        fs.realpath(workspaceRoot),
         fs.realpath(os.homedir()),
       ]);
 
@@ -42,9 +35,9 @@ const homeDirectoryCheck: WarningCheck = {
 
 const rootDirectoryCheck: WarningCheck = {
   id: 'root-directory',
-  check: async (options: WarningCheckOptions) => {
+  check: async (workspaceRoot: string) => {
     try {
-      const workspaceRealPath = await fs.realpath(options.workspaceRoot);
+      const workspaceRealPath = await fs.realpath(workspaceRoot);
       const errorMessage =
         'Warning: You are running Qwen Code in the root directory. Your entire folder structure will be used for context. It is strongly recommended to run in a project-specific directory.';
 
@@ -60,33 +53,17 @@ const rootDirectoryCheck: WarningCheck = {
   },
 };
 
-const ripgrepAvailabilityCheck: WarningCheck = {
-  id: 'ripgrep-availability',
-  check: async (options: WarningCheckOptions) => {
-    if (!options.useRipgrep) {
-      return null;
-    }
-
-    const isAvailable = await canUseRipgrep(options.useBuiltinRipgrep);
-    if (!isAvailable) {
-      return 'Ripgrep not available: Please install ripgrep globally to enable faster file content search. Falling back to built-in grep.';
-    }
-    return null;
-  },
-};
-
 // All warning checks
 const WARNING_CHECKS: readonly WarningCheck[] = [
   homeDirectoryCheck,
   rootDirectoryCheck,
-  ripgrepAvailabilityCheck,
 ];
 
 export async function getUserStartupWarnings(
-  options: WarningCheckOptions,
+  workspaceRoot: string,
 ): Promise<string[]> {
   const results = await Promise.all(
-    WARNING_CHECKS.map((check) => check.check(options)),
+    WARNING_CHECKS.map((check) => check.check(workspaceRoot)),
   );
   return results.filter((msg) => msg !== null);
 }

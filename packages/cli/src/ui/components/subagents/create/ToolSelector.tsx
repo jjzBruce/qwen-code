@@ -9,7 +9,7 @@ import { Box, Text } from 'ink';
 import { RadioButtonSelect } from '../../shared/RadioButtonSelect.js';
 import type { ToolCategory } from '../types.js';
 import { Kind, type Config } from '@qwen-code/qwen-code-core';
-import { theme } from '../../../semantic-colors.js';
+import { Colors } from '../../../colors.js';
 
 interface ToolOption {
   label: string;
@@ -184,7 +184,6 @@ export function ToolSelector({
       <Box flexDirection="column">
         <RadioButtonSelect
           items={toolOptions.map((option) => ({
-            key: option.value,
             label: option.label,
             value: option.value,
           }))}
@@ -201,12 +200,12 @@ export function ToolSelector({
       {currentCategory && (
         <Box flexDirection="column">
           {currentCategory.id === 'all' ? (
-            <Text color={theme.text.secondary}>
+            <Text color={Colors.Gray}>
               All tools selected, including MCP tools
             </Text>
           ) : currentCategory.tools.length > 0 ? (
             <>
-              <Text color={theme.text.secondary}>Selected tools:</Text>
+              <Text color={Colors.Gray}>Selected tools:</Text>
               <Box flexDirection="column" marginLeft={2}>
                 {(() => {
                   // Filter the already categorized tools to show only those in current category
@@ -223,17 +222,17 @@ export function ToolSelector({
                   return (
                     <>
                       {categoryReadTools.length > 0 && (
-                        <Text color={theme.text.secondary}>
+                        <Text color={Colors.Gray}>
                           • Read-only tools: {categoryReadTools.join(', ')}
                         </Text>
                       )}
                       {categoryEditTools.length > 0 && (
-                        <Text color={theme.text.secondary}>
+                        <Text color={Colors.Gray}>
                           • Edit tools: {categoryEditTools.join(', ')}
                         </Text>
                       )}
                       {categoryExecuteTools.length > 0 && (
-                        <Text color={theme.text.secondary}>
+                        <Text color={Colors.Gray}>
                           • Execution tools: {categoryExecuteTools.join(', ')}
                         </Text>
                       )}

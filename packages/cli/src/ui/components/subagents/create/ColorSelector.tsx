@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { RadioButtonSelect } from '../../shared/RadioButtonSelect.js';
 import { type ColorOption } from '../types.js';
-import { theme } from '../../../semantic-colors.js';
+import { Colors } from '../../../colors.js';
 import { COLOR_OPTIONS } from '../constants.js';
 
 const colorOptions: ColorOption[] = COLOR_OPTIONS;
@@ -61,7 +61,6 @@ export function ColorSelector({
       <Box flexDirection="column">
         <RadioButtonSelect
           items={colorOptions.map((option) => ({
-            key: option.id,
             label: option.name,
             value: option.id,
           }))}
@@ -75,7 +74,7 @@ export function ColorSelector({
       </Box>
 
       <Box flexDirection="row">
-        <Text color={theme.text.secondary}>Preview:</Text>
+        <Text color={Colors.Gray}>Preview:</Text>
         <Box marginLeft={2}>
           <Text color={currentColor.value}>{` ${agentName} `}</Text>
         </Box>

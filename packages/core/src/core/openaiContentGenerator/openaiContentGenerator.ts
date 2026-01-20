@@ -32,7 +32,6 @@ export class OpenAIContentGenerator implements ContentGenerator {
       telemetryService: new DefaultTelemetryService(
         cliConfig,
         contentGeneratorConfig.enableOpenAILogging,
-        contentGeneratorConfig.openAILoggingDir,
       ),
       errorHandler: new EnhancedErrorHandler(
         (error: unknown, request: GenerateContentParameters) =>

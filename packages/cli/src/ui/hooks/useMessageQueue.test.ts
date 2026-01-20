@@ -25,7 +25,6 @@ describe('useMessageQueue', () => {
   it('should initialize with empty queue', () => {
     const { result } = renderHook(() =>
       useMessageQueue({
-        isConfigInitialized: true,
         streamingState: StreamingState.Idle,
         submitQuery: mockSubmitQuery,
       }),
@@ -38,7 +37,6 @@ describe('useMessageQueue', () => {
   it('should add messages to queue', () => {
     const { result } = renderHook(() =>
       useMessageQueue({
-        isConfigInitialized: true,
         streamingState: StreamingState.Responding,
         submitQuery: mockSubmitQuery,
       }),
@@ -58,7 +56,6 @@ describe('useMessageQueue', () => {
   it('should filter out empty messages', () => {
     const { result } = renderHook(() =>
       useMessageQueue({
-        isConfigInitialized: true,
         streamingState: StreamingState.Responding,
         submitQuery: mockSubmitQuery,
       }),
@@ -80,7 +77,6 @@ describe('useMessageQueue', () => {
   it('should clear queue', () => {
     const { result } = renderHook(() =>
       useMessageQueue({
-        isConfigInitialized: true,
         streamingState: StreamingState.Responding,
         submitQuery: mockSubmitQuery,
       }),
@@ -102,7 +98,6 @@ describe('useMessageQueue', () => {
   it('should return queued messages as text with double newlines', () => {
     const { result } = renderHook(() =>
       useMessageQueue({
-        isConfigInitialized: true,
         streamingState: StreamingState.Responding,
         submitQuery: mockSubmitQuery,
       }),
@@ -123,7 +118,6 @@ describe('useMessageQueue', () => {
     const { result, rerender } = renderHook(
       ({ streamingState }) =>
         useMessageQueue({
-          isConfigInitialized: true,
           streamingState,
           submitQuery: mockSubmitQuery,
         }),
@@ -151,7 +145,6 @@ describe('useMessageQueue', () => {
     const { rerender } = renderHook(
       ({ streamingState }) =>
         useMessageQueue({
-          isConfigInitialized: true,
           streamingState,
           submitQuery: mockSubmitQuery,
         }),
@@ -170,7 +163,6 @@ describe('useMessageQueue', () => {
     const { result, rerender } = renderHook(
       ({ streamingState }) =>
         useMessageQueue({
-          isConfigInitialized: true,
           streamingState,
           submitQuery: mockSubmitQuery,
         }),
@@ -195,7 +187,6 @@ describe('useMessageQueue', () => {
     const { result, rerender } = renderHook(
       ({ streamingState }) =>
         useMessageQueue({
-          isConfigInitialized: true,
           streamingState,
           submitQuery: mockSubmitQuery,
         }),

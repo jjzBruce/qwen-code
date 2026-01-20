@@ -224,8 +224,6 @@ describe('FileCommandLoader', () => {
     const mockConfig = {
       getProjectRoot: vi.fn(() => '/path/to/project'),
       getExtensions: vi.fn(() => []),
-      getFolderTrustFeature: vi.fn(() => false),
-      getFolderTrust: vi.fn(() => false),
     } as unknown as Config;
     const loader = new FileCommandLoader(mockConfig);
     const commands = await loader.loadCommands(signal);
@@ -269,8 +267,6 @@ describe('FileCommandLoader', () => {
     const mockConfig = {
       getProjectRoot: vi.fn(() => process.cwd()),
       getExtensions: vi.fn(() => []),
-      getFolderTrustFeature: vi.fn(() => false),
-      getFolderTrust: vi.fn(() => false),
     } as unknown as Config;
     const loader = new FileCommandLoader(mockConfig);
     const commands = await loader.loadCommands(signal);
@@ -560,8 +556,6 @@ describe('FileCommandLoader', () => {
             path: extensionDir,
           },
         ]),
-        getFolderTrustFeature: vi.fn(() => false),
-        getFolderTrust: vi.fn(() => false),
       } as unknown as Config;
       const loader = new FileCommandLoader(mockConfig);
       const commands = await loader.loadCommands(signal);
@@ -613,8 +607,6 @@ describe('FileCommandLoader', () => {
             path: extensionDir,
           },
         ]),
-        getFolderTrustFeature: vi.fn(() => false),
-        getFolderTrust: vi.fn(() => false),
       } as unknown as Config;
       const loader = new FileCommandLoader(mockConfig);
       const commands = await loader.loadCommands(signal);
@@ -722,8 +714,6 @@ describe('FileCommandLoader', () => {
             path: extensionDir2,
           },
         ]),
-        getFolderTrustFeature: vi.fn(() => false),
-        getFolderTrust: vi.fn(() => false),
       } as unknown as Config;
       const loader = new FileCommandLoader(mockConfig);
       const commands = await loader.loadCommands(signal);
@@ -760,8 +750,6 @@ describe('FileCommandLoader', () => {
             path: extensionDir,
           },
         ]),
-        getFolderTrustFeature: vi.fn(() => false),
-        getFolderTrust: vi.fn(() => false),
       } as unknown as Config;
       const loader = new FileCommandLoader(mockConfig);
       const commands = await loader.loadCommands(signal);
@@ -794,8 +782,6 @@ describe('FileCommandLoader', () => {
         getExtensions: vi.fn(() => [
           { name: 'a', version: '1.0.0', isActive: true, path: extensionDir },
         ]),
-        getFolderTrustFeature: vi.fn(() => false),
-        getFolderTrust: vi.fn(() => false),
       } as unknown as Config;
       const loader = new FileCommandLoader(mockConfig);
       const commands = await loader.loadCommands(signal);
@@ -1181,74 +1167,6 @@ describe('FileCommandLoader', () => {
           { text: 'Context from file: file content' },
         ]);
       }
-    });
-  });
-
-  describe('with folder trust enabled', () => {
-    it('loads multiple commands', async () => {
-      const mockConfig = {
-        getProjectRoot: vi.fn(() => '/path/to/project'),
-        getExtensions: vi.fn(() => []),
-        getFolderTrustFeature: vi.fn(() => true),
-        getFolderTrust: vi.fn(() => true),
-      } as unknown as Config;
-      const userCommandsDir = Storage.getUserCommandsDir();
-      mock({
-        [userCommandsDir]: {
-          'test1.toml': 'prompt = "Prompt 1"',
-          'test2.toml': 'prompt = "Prompt 2"',
-        },
-      });
-
-      const loader = new FileCommandLoader(mockConfig);
-      const commands = await loader.loadCommands(signal);
-
-      expect(commands).toHaveLength(2);
-    });
-
-    it('does not load when folder is not trusted', async () => {
-      const mockConfig = {
-        getProjectRoot: vi.fn(() => '/path/to/project'),
-        getExtensions: vi.fn(() => []),
-        getFolderTrustFeature: vi.fn(() => true),
-        getFolderTrust: vi.fn(() => false),
-      } as unknown as Config;
-      const userCommandsDir = Storage.getUserCommandsDir();
-      mock({
-        [userCommandsDir]: {
-          'test1.toml': 'prompt = "Prompt 1"',
-          'test2.toml': 'prompt = "Prompt 2"',
-        },
-      });
-
-      const loader = new FileCommandLoader(mockConfig);
-      const commands = await loader.loadCommands(signal);
-
-      expect(commands).toHaveLength(0);
-    });
-  });
-
-  describe('AbortError handling', () => {
-    it('should silently ignore AbortError when operation is cancelled', async () => {
-      const userCommandsDir = Storage.getUserCommandsDir();
-      mock({
-        [userCommandsDir]: {
-          'test1.toml': 'prompt = "Prompt 1"',
-          'test2.toml': 'prompt = "Prompt 2"',
-        },
-      });
-
-      const loader = new FileCommandLoader(null);
-      const controller = new AbortController();
-      const signal = controller.signal;
-
-      // Start loading and immediately abort
-      const loadPromise = loader.loadCommands(signal);
-      controller.abort();
-
-      // Should not throw or print errors
-      const commands = await loadPromise;
-      expect(commands).toHaveLength(0);
     });
   });
 });

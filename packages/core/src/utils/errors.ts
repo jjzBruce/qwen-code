@@ -59,16 +59,6 @@ export class FatalTurnLimitedError extends FatalError {
     super(message, 53);
   }
 }
-export class FatalToolExecutionError extends FatalError {
-  constructor(message: string) {
-    super(message, 54);
-  }
-}
-export class FatalCancellationError extends FatalError {
-  constructor(message: string) {
-    super(message, 130); // Standard exit code for SIGINT
-  }
-}
 
 export class ForbiddenError extends Error {}
 export class UnauthorizedError extends Error {}

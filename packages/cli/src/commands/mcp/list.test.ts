@@ -7,7 +7,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { listMcpServers } from './list.js';
 import { loadSettings } from '../../config/settings.js';
-import { ExtensionStorage, loadExtensions } from '../../config/extension.js';
+import { loadExtensions } from '../../config/extension.js';
 import { createTransport } from '@qwen-code/qwen-code-core';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
@@ -16,9 +16,6 @@ vi.mock('../../config/settings.js', () => ({
 }));
 vi.mock('../../config/extension.js', () => ({
   loadExtensions: vi.fn(),
-  ExtensionStorage: {
-    getUserExtensionsDir: vi.fn(),
-  },
 }));
 vi.mock('@qwen-code/qwen-code-core', () => ({
   createTransport: vi.fn(),
@@ -32,12 +29,11 @@ vi.mock('@qwen-code/qwen-code-core', () => ({
     getWorkspaceSettingsPath: () => '/tmp/qwen/workspace-settings.json',
     getProjectTempDir: () => '/test/home/.qwen/tmp/mocked_hash',
   })),
-  QWEN_CONFIG_DIR: '.qwen',
+  GEMINI_CONFIG_DIR: '.qwen',
   getErrorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
 }));
 vi.mock('@modelcontextprotocol/sdk/client/index.js');
 
-const mockedExtensionStorage = ExtensionStorage as vi.Mock;
 const mockedLoadSettings = loadSettings as vi.Mock;
 const mockedLoadExtensions = loadExtensions as vi.Mock;
 const mockedCreateTransport = createTransport as vi.Mock;
@@ -73,9 +69,6 @@ describe('mcp list command', () => {
     MockedClient.mockImplementation(() => mockClient);
     mockedCreateTransport.mockResolvedValue(mockTransport);
     mockedLoadExtensions.mockReturnValue([]);
-    mockedExtensionStorage.getUserExtensionsDir.mockReturnValue(
-      '/mocked/extensions/dir',
-    );
   });
 
   afterEach(() => {

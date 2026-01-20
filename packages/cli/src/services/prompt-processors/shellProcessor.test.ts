@@ -71,7 +71,6 @@ describe('ShellProcessor', () => {
       getTargetDir: vi.fn().mockReturnValue('/test/dir'),
       getApprovalMode: vi.fn().mockReturnValue(ApprovalMode.DEFAULT),
       getShouldUseNodePtyShell: vi.fn().mockReturnValue(false),
-      getShellExecutionConfig: vi.fn().mockReturnValue({}),
     };
 
     context = createMockCommandContext({
@@ -148,7 +147,6 @@ describe('ShellProcessor', () => {
       expect.any(Function),
       expect.any(Object),
       false,
-      expect.any(Object),
     );
     expect(result).toEqual([{ text: 'The current status is: On branch main' }]);
   });
@@ -220,7 +218,6 @@ describe('ShellProcessor', () => {
       expect.any(Function),
       expect.any(Object),
       false,
-      expect.any(Object),
     );
     expect(result).toEqual([{ text: 'Do something dangerous: deleted' }]);
   });
@@ -413,7 +410,6 @@ describe('ShellProcessor', () => {
       expect.any(Function),
       expect.any(Object),
       false,
-      expect.any(Object),
     );
   });
 
@@ -578,7 +574,6 @@ describe('ShellProcessor', () => {
         expect.any(Function),
         expect.any(Object),
         false,
-        expect.any(Object),
       );
 
       expect(result).toEqual([{ text: 'Command: match found' }]);
@@ -603,7 +598,6 @@ describe('ShellProcessor', () => {
         expect.any(Function),
         expect.any(Object),
         false,
-        expect.any(Object),
       );
 
       expect(result).toEqual([
@@ -674,7 +668,6 @@ describe('ShellProcessor', () => {
         expect.any(Function),
         expect.any(Object),
         false,
-        expect.any(Object),
       );
     });
 
@@ -704,7 +697,6 @@ describe('ShellProcessor', () => {
         expect.any(Function),
         expect.any(Object),
         false,
-        expect.any(Object),
       );
     });
   });

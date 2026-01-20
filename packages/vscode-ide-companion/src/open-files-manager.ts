@@ -5,10 +5,7 @@
  */
 
 import * as vscode from 'vscode';
-import type {
-  File,
-  IdeContext,
-} from '@qwen-code/qwen-code-core/src/ide/types.js';
+import type { File, IdeContext } from '@qwen-code/qwen-code-core';
 
 export const MAX_FILES = 10;
 const MAX_SELECTED_TEXT_LENGTH = 16384; // 16 KiB limit
@@ -175,7 +172,6 @@ export class OpenFilesManager {
     return {
       workspaceState: {
         openFiles: [...this.openFiles],
-        isTrusted: vscode.workspace.isTrusted,
       },
     };
   }

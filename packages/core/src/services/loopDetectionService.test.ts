@@ -7,7 +7,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Config } from '../config/config.js';
 import type { GeminiClient } from '../core/client.js';
-import type { BaseLlmClient } from '../core/baseLlmClient.js';
 import type {
   ServerGeminiContentEvent,
   ServerGeminiStreamEvent,
@@ -20,7 +19,8 @@ import { LoopDetectionService } from './loopDetectionService.js';
 
 vi.mock('../telemetry/loggers.js', () => ({
   logLoopDetected: vi.fn(),
-  logLoopDetectionDisabled: vi.fn(),
+  logApiError: vi.fn(),
+  logApiResponse: vi.fn(),
 }));
 
 const TOOL_CALL_LOOP_THRESHOLD = 5;
@@ -131,16 +131,6 @@ describe('LoopDetectionService', () => {
       // Send the tool call event again, which should now trigger the loop
       expect(service.addAndCheck(toolCallEvent)).toBe(true);
       expect(loggers.logLoopDetected).toHaveBeenCalledTimes(1);
-    });
-
-    it('should not detect a loop when disabled for session', () => {
-      service.disableForSession();
-      expect(loggers.logLoopDetectionDisabled).toHaveBeenCalledTimes(1);
-      const event = createToolCallRequestEvent('testTool', { param: 'value' });
-      for (let i = 0; i < TOOL_CALL_LOOP_THRESHOLD; i++) {
-        expect(service.addAndCheck(event)).toBe(false);
-      }
-      expect(loggers.logLoopDetected).not.toHaveBeenCalled();
     });
   });
 
@@ -628,24 +618,18 @@ describe('LoopDetectionService LLM Checks', () => {
   let service: LoopDetectionService;
   let mockConfig: Config;
   let mockGeminiClient: GeminiClient;
-  let mockBaseLlmClient: BaseLlmClient;
   let abortController: AbortController;
 
   beforeEach(() => {
     mockGeminiClient = {
       getHistory: vi.fn().mockReturnValue([]),
-    } as unknown as GeminiClient;
-
-    mockBaseLlmClient = {
       generateJson: vi.fn(),
-    } as unknown as BaseLlmClient;
+    } as unknown as GeminiClient;
 
     mockConfig = {
       getGeminiClient: () => mockGeminiClient,
-      getBaseLlmClient: () => mockBaseLlmClient,
       getDebugMode: () => false,
       getTelemetryEnabled: () => true,
-      getModel: () => 'test-model',
     } as unknown as Config;
 
     service = new LoopDetectionService(mockConfig);
@@ -665,39 +649,30 @@ describe('LoopDetectionService LLM Checks', () => {
 
   it('should not trigger LLM check before LLM_CHECK_AFTER_TURNS', async () => {
     await advanceTurns(29);
-    expect(mockBaseLlmClient.generateJson).not.toHaveBeenCalled();
+    expect(mockGeminiClient.generateJson).not.toHaveBeenCalled();
   });
 
   it('should trigger LLM check on the 30th turn', async () => {
-    mockBaseLlmClient.generateJson = vi
+    mockGeminiClient.generateJson = vi
       .fn()
       .mockResolvedValue({ confidence: 0.1 });
     await advanceTurns(30);
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalledTimes(1);
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalledWith(
-      expect.objectContaining({
-        systemInstruction: expect.any(String),
-        contents: expect.any(Array),
-        model: expect.any(String),
-        schema: expect.any(Object),
-        promptId: expect.any(String),
-      }),
-    );
+    expect(mockGeminiClient.generateJson).toHaveBeenCalledTimes(1);
   });
 
   it('should detect a cognitive loop when confidence is high', async () => {
     // First check at turn 30
-    mockBaseLlmClient.generateJson = vi
+    mockGeminiClient.generateJson = vi
       .fn()
       .mockResolvedValue({ confidence: 0.85, reasoning: 'Repetitive actions' });
     await advanceTurns(30);
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalledTimes(1);
+    expect(mockGeminiClient.generateJson).toHaveBeenCalledTimes(1);
 
     // The confidence of 0.85 will result in a low interval.
     // The interval will be: 5 + (15 - 5) * (1 - 0.85) = 5 + 10 * 0.15 = 6.5 -> rounded to 7
     await advanceTurns(6); // advance to turn 36
 
-    mockBaseLlmClient.generateJson = vi
+    mockGeminiClient.generateJson = vi
       .fn()
       .mockResolvedValue({ confidence: 0.95, reasoning: 'Repetitive actions' });
     const finalResult = await service.turnStarted(abortController.signal); // This is turn 37
@@ -713,7 +688,7 @@ describe('LoopDetectionService LLM Checks', () => {
   });
 
   it('should not detect a loop when confidence is low', async () => {
-    mockBaseLlmClient.generateJson = vi
+    mockGeminiClient.generateJson = vi
       .fn()
       .mockResolvedValue({ confidence: 0.5, reasoning: 'Looks okay' });
     await advanceTurns(30);
@@ -724,35 +699,26 @@ describe('LoopDetectionService LLM Checks', () => {
 
   it('should adjust the check interval based on confidence', async () => {
     // Confidence is 0.0, so interval should be MAX_LLM_CHECK_INTERVAL (15)
-    mockBaseLlmClient.generateJson = vi
+    mockGeminiClient.generateJson = vi
       .fn()
       .mockResolvedValue({ confidence: 0.0 });
     await advanceTurns(30); // First check at turn 30
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalledTimes(1);
+    expect(mockGeminiClient.generateJson).toHaveBeenCalledTimes(1);
 
     await advanceTurns(14); // Advance to turn 44
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalledTimes(1);
+    expect(mockGeminiClient.generateJson).toHaveBeenCalledTimes(1);
 
     await service.turnStarted(abortController.signal); // Turn 45
-    expect(mockBaseLlmClient.generateJson).toHaveBeenCalledTimes(2);
+    expect(mockGeminiClient.generateJson).toHaveBeenCalledTimes(2);
   });
 
   it('should handle errors from generateJson gracefully', async () => {
-    mockBaseLlmClient.generateJson = vi
+    mockGeminiClient.generateJson = vi
       .fn()
       .mockRejectedValue(new Error('API error'));
     await advanceTurns(30);
     const result = await service.turnStarted(abortController.signal);
     expect(result).toBe(false);
     expect(loggers.logLoopDetected).not.toHaveBeenCalled();
-  });
-
-  it('should not trigger LLM check when disabled for session', async () => {
-    service.disableForSession();
-    expect(loggers.logLoopDetectionDisabled).toHaveBeenCalledTimes(1);
-    await advanceTurns(30);
-    const result = await service.turnStarted(abortController.signal);
-    expect(result).toBe(false);
-    expect(mockBaseLlmClient.generateJson).not.toHaveBeenCalled();
   });
 });

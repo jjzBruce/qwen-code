@@ -55,7 +55,6 @@ const makeFakeConfig = (overrides: Partial<Config> = {}): Config => {
     getTelemetryEnabled: () => true,
     getTelemetryLogPromptsEnabled: () => false,
     getFileFilteringRespectGitIgnore: () => true,
-    getOutputFormat: () => 'text',
     ...overrides,
   };
   return defaults as Config;
@@ -263,7 +262,7 @@ describe('QwenLogger', () => {
       expect(enqueueSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           event_type: 'action',
-          type: 'ide',
+          type: 'connection',
           name: 'ide_connection',
           snapshots: JSON.stringify({
             connection_type: IdeConnectionType.SESSION,

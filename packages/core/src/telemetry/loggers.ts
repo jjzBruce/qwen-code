@@ -12,31 +12,22 @@ import { safeJsonStringify } from '../utils/safeJsonStringify.js';
 import { UserAccountManager } from '../utils/userAccountManager.js';
 import {
   EVENT_API_ERROR,
-  EVENT_API_CANCEL,
   EVENT_API_REQUEST,
   EVENT_API_RESPONSE,
-  EVENT_CLI_CONFIG,
-  EVENT_EXTENSION_UNINSTALL,
-  EVENT_EXTENSION_ENABLE,
-  EVENT_IDE_CONNECTION,
-  EVENT_TOOL_CALL,
-  EVENT_USER_PROMPT,
-  EVENT_FLASH_FALLBACK,
-  EVENT_NEXT_SPEAKER_CHECK,
-  SERVICE_NAME,
-  EVENT_SLASH_COMMAND,
-  EVENT_CONVERSATION_FINISHED,
   EVENT_CHAT_COMPRESSION,
+  EVENT_CLI_CONFIG,
   EVENT_CONTENT_RETRY,
   EVENT_CONTENT_RETRY_FAILURE,
-  EVENT_FILE_OPERATION,
-  EVENT_RIPGREP_FALLBACK,
-  EVENT_EXTENSION_INSTALL,
-  EVENT_MODEL_SLASH_COMMAND,
-  EVENT_EXTENSION_DISABLE,
-  EVENT_SUBAGENT_EXECUTION,
-  EVENT_MALFORMED_JSON_RESPONSE,
+  EVENT_CONVERSATION_FINISHED,
+  EVENT_FLASH_FALLBACK,
+  EVENT_IDE_CONNECTION,
   EVENT_INVALID_CHUNK,
+  EVENT_NEXT_SPEAKER_CHECK,
+  EVENT_SLASH_COMMAND,
+  EVENT_SUBAGENT_EXECUTION,
+  EVENT_TOOL_CALL,
+  EVENT_USER_PROMPT,
+  SERVICE_NAME,
 } from './constants.js';
 import {
   recordApiErrorMetrics,
@@ -46,7 +37,6 @@ import {
   recordContentRetryFailure,
   recordFileOperationMetric,
   recordInvalidChunk,
-  recordModelSlashCommand,
   recordSubagentExecutionMetrics,
   recordTokenUsageMetrics,
   recordToolCallMetrics,
@@ -55,37 +45,26 @@ import { QwenLogger } from './qwen-logger/qwen-logger.js';
 import { isTelemetrySdkInitialized } from './sdk.js';
 import type {
   ApiErrorEvent,
-  ApiCancelEvent,
   ApiRequestEvent,
   ApiResponseEvent,
-  FileOperationEvent,
-  IdeConnectionEvent,
-  StartSessionEvent,
-  ToolCallEvent,
-  UserPromptEvent,
-  FlashFallbackEvent,
-  NextSpeakerCheckEvent,
-  LoopDetectedEvent,
-  LoopDetectionDisabledEvent,
-  SlashCommandEvent,
-  ConversationFinishedEvent,
-  KittySequenceOverflowEvent,
   ChatCompressionEvent,
   ContentRetryEvent,
   ContentRetryFailureEvent,
-  RipgrepFallbackEvent,
-  ToolOutputTruncatedEvent,
-  ExtensionDisableEvent,
-  ExtensionEnableEvent,
-  ExtensionUninstallEvent,
-  ExtensionInstallEvent,
-  ModelSlashCommandEvent,
-  SubagentExecutionEvent,
-  MalformedJsonResponseEvent,
+  ConversationFinishedEvent,
+  FileOperationEvent,
+  FlashFallbackEvent,
+  IdeConnectionEvent,
   InvalidChunkEvent,
+  KittySequenceOverflowEvent,
+  LoopDetectedEvent,
+  NextSpeakerCheckEvent,
+  SlashCommandEvent,
+  StartSessionEvent,
+  SubagentExecutionEvent,
+  ToolCallEvent,
+  UserPromptEvent,
 } from './types.js';
-import type { UiEvent } from './uiTelemetry.js';
-import { uiTelemetryService } from './uiTelemetry.js';
+import { type UiEvent, uiTelemetryService } from './uiTelemetry.js';
 
 const shouldLogUserPrompts = (config: Config): boolean =>
   config.getTelemetryLogPromptsEnabled();
@@ -124,7 +103,6 @@ export function logCliConfiguration(
     mcp_servers_count: event.mcp_servers_count,
     mcp_tools: event.mcp_tools,
     mcp_tools_count: event.mcp_tools_count,
-    output_format: event.output_format,
   };
 
   const logger = logs.getLogger(SERVICE_NAME);
@@ -193,34 +171,14 @@ export function logToolCall(config: Config, event: ToolCallEvent): void {
     attributes,
   };
   logger.emit(logRecord);
-  recordToolCallMetrics(config, event.duration_ms, {
-    function_name: event.function_name,
-    success: event.success,
-    decision: event.decision,
-    tool_type: event.tool_type,
-  });
-}
-
-export function logToolOutputTruncated(
-  config: Config,
-  event: ToolOutputTruncatedEvent,
-): void {
-  QwenLogger.getInstance(config)?.logToolOutputTruncatedEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': 'tool_output_truncated',
-    'event.timestamp': new Date().toISOString(),
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Tool output truncated for ${event.tool_name}.`,
-    attributes,
-  };
-  logger.emit(logRecord);
+  recordToolCallMetrics(
+    config,
+    event.function_name,
+    event.duration_ms,
+    event.success,
+    event.decision,
+    event.tool_type,
+  );
 }
 
 export function logFileOperation(
@@ -230,41 +188,15 @@ export function logFileOperation(
   QwenLogger.getInstance(config)?.logFileOperationEvent(event);
   if (!isTelemetrySdkInitialized()) return;
 
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    'event.name': EVENT_FILE_OPERATION,
-    'event.timestamp': new Date().toISOString(),
-    tool_name: event.tool_name,
-    operation: event.operation,
-  };
-
-  if (event.lines) {
-    attributes['lines'] = event.lines;
-  }
-  if (event.mimetype) {
-    attributes['mimetype'] = event.mimetype;
-  }
-  if (event.extension) {
-    attributes['extension'] = event.extension;
-  }
-  if (event.programming_language) {
-    attributes['programming_language'] = event.programming_language;
-  }
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `File operation: ${event.operation}. Lines: ${event.lines}.`,
-    attributes,
-  };
-  logger.emit(logRecord);
-
-  recordFileOperationMetric(config, {
-    operation: event.operation,
-    lines: event.lines,
-    mimetype: event.mimetype,
-    extension: event.extension,
-    programming_language: event.programming_language,
-  });
+  recordFileOperationMetric(
+    config,
+    event.operation,
+    event.lines,
+    event.mimetype,
+    event.extension,
+    event.diff_stat,
+    event.programming_language,
+  );
 }
 
 export function logApiRequest(config: Config, event: ApiRequestEvent): void {
@@ -308,28 +240,6 @@ export function logFlashFallback(
   logger.emit(logRecord);
 }
 
-export function logRipgrepFallback(
-  config: Config,
-  event: RipgrepFallbackEvent,
-): void {
-  QwenLogger.getInstance(config)?.logRipgrepFallbackEvent();
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_RIPGREP_FALLBACK,
-    'event.timestamp': new Date().toISOString(),
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Switching to grep as fallback.`,
-    attributes,
-  };
-  logger.emit(logRecord);
-}
-
 export function logApiError(config: Config, event: ApiErrorEvent): void {
   const uiEvent = {
     ...event,
@@ -363,37 +273,13 @@ export function logApiError(config: Config, event: ApiErrorEvent): void {
     attributes,
   };
   logger.emit(logRecord);
-  recordApiErrorMetrics(config, event.duration_ms, {
-    model: event.model,
-    status_code: event.status_code,
-    error_type: event.error_type,
-  });
-}
-
-export function logApiCancel(config: Config, event: ApiCancelEvent): void {
-  const uiEvent = {
-    ...event,
-    'event.name': EVENT_API_CANCEL,
-    'event.timestamp': new Date().toISOString(),
-  } as UiEvent;
-  uiTelemetryService.addEvent(uiEvent);
-  QwenLogger.getInstance(config)?.logApiCancelEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_API_CANCEL,
-    'event.timestamp': new Date().toISOString(),
-    model_name: event.model,
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `API request cancelled for ${event.model}.`,
-    attributes,
-  };
-  logger.emit(logRecord);
+  recordApiErrorMetrics(
+    config,
+    event.model,
+    event.duration_ms,
+    event.status_code,
+    event.error_type,
+  );
 }
 
 export function logApiResponse(config: Config, event: ApiResponseEvent): void {
@@ -414,7 +300,9 @@ export function logApiResponse(config: Config, event: ApiResponseEvent): void {
   if (event.response_text) {
     attributes['response_text'] = event.response_text;
   }
-  if (event.status_code) {
+  if (event.error) {
+    attributes['error.message'] = event.error;
+  } else if (event.status_code) {
     if (typeof event.status_code === 'number') {
       attributes[SemanticAttributes.HTTP_STATUS_CODE] = event.status_code;
     }
@@ -426,30 +314,38 @@ export function logApiResponse(config: Config, event: ApiResponseEvent): void {
     attributes,
   };
   logger.emit(logRecord);
-  recordApiResponseMetrics(config, event.duration_ms, {
-    model: event.model,
-    status_code: event.status_code,
-  });
-  recordTokenUsageMetrics(config, event.input_token_count, {
-    model: event.model,
-    type: 'input',
-  });
-  recordTokenUsageMetrics(config, event.output_token_count, {
-    model: event.model,
-    type: 'output',
-  });
-  recordTokenUsageMetrics(config, event.cached_content_token_count, {
-    model: event.model,
-    type: 'cache',
-  });
-  recordTokenUsageMetrics(config, event.thoughts_token_count, {
-    model: event.model,
-    type: 'thought',
-  });
-  recordTokenUsageMetrics(config, event.tool_token_count, {
-    model: event.model,
-    type: 'tool',
-  });
+  recordApiResponseMetrics(
+    config,
+    event.model,
+    event.duration_ms,
+    event.status_code,
+    event.error,
+  );
+  recordTokenUsageMetrics(
+    config,
+    event.model,
+    event.input_token_count,
+    'input',
+  );
+  recordTokenUsageMetrics(
+    config,
+    event.model,
+    event.output_token_count,
+    'output',
+  );
+  recordTokenUsageMetrics(
+    config,
+    event.model,
+    event.cached_content_token_count,
+    'cache',
+  );
+  recordTokenUsageMetrics(
+    config,
+    event.model,
+    event.thoughts_token_count,
+    'thought',
+  );
+  recordTokenUsageMetrics(config, event.model, event.tool_token_count, 'tool');
 }
 
 export function logLoopDetected(
@@ -470,13 +366,6 @@ export function logLoopDetected(
     attributes,
   };
   logger.emit(logRecord);
-}
-
-export function logLoopDetectionDisabled(
-  config: Config,
-  _event: LoopDetectionDisabledEvent,
-): void {
-  QwenLogger.getInstance(config)?.logLoopDetectionDisabledEvent();
 }
 
 export function logNextSpeakerCheck(
@@ -605,28 +494,6 @@ export function logKittySequenceOverflow(
   };
   logger.emit(logRecord);
 }
-
-export function logMalformedJsonResponse(
-  config: Config,
-  event: MalformedJsonResponseEvent,
-): void {
-  QwenLogger.getInstance(config)?.logMalformedJsonResponseEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_MALFORMED_JSON_RESPONSE,
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Malformed JSON response from ${event.model}.`,
-    attributes,
-  };
-  logger.emit(logRecord);
-}
-
 export function logInvalidChunk(
   config: Config,
   event: InvalidChunkEvent,
@@ -723,118 +590,4 @@ export function logSubagentExecution(
     event.status,
     event.terminate_reason,
   );
-}
-
-export function logModelSlashCommand(
-  config: Config,
-  event: ModelSlashCommandEvent,
-): void {
-  QwenLogger.getInstance(config)?.logModelSlashCommandEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_MODEL_SLASH_COMMAND,
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Model slash command. Model: ${event.model_name}`,
-    attributes,
-  };
-  logger.emit(logRecord);
-  recordModelSlashCommand(config, event);
-}
-
-export function logExtensionInstallEvent(
-  config: Config,
-  event: ExtensionInstallEvent,
-): void {
-  QwenLogger.getInstance(config)?.logExtensionInstallEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_EXTENSION_INSTALL,
-    'event.timestamp': new Date().toISOString(),
-    extension_name: event.extension_name,
-    extension_version: event.extension_version,
-    extension_source: event.extension_source,
-    status: event.status,
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Installed extension ${event.extension_name}`,
-    attributes,
-  };
-  logger.emit(logRecord);
-}
-
-export function logExtensionUninstall(
-  config: Config,
-  event: ExtensionUninstallEvent,
-): void {
-  QwenLogger.getInstance(config)?.logExtensionUninstallEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_EXTENSION_UNINSTALL,
-    'event.timestamp': new Date().toISOString(),
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Uninstalled extension ${event.extension_name}`,
-    attributes,
-  };
-  logger.emit(logRecord);
-}
-
-export function logExtensionEnable(
-  config: Config,
-  event: ExtensionEnableEvent,
-): void {
-  QwenLogger.getInstance(config)?.logExtensionEnableEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_EXTENSION_ENABLE,
-    'event.timestamp': new Date().toISOString(),
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Enabled extension ${event.extension_name}`,
-    attributes,
-  };
-  logger.emit(logRecord);
-}
-
-export function logExtensionDisable(
-  config: Config,
-  event: ExtensionDisableEvent,
-): void {
-  QwenLogger.getInstance(config)?.logExtensionDisableEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_EXTENSION_DISABLE,
-    'event.timestamp': new Date().toISOString(),
-  };
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Disabled extension ${event.extension_name}`,
-    attributes,
-  };
-  logger.emit(logRecord);
 }

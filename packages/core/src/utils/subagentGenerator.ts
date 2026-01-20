@@ -6,7 +6,7 @@
 
 import type { Content } from '@google/genai';
 import { DEFAULT_QWEN_MODEL } from '../config/models.js';
-import type { Config } from '../config/config.js';
+import type { GeminiClient } from '../core/client.js';
 
 const SYSTEM_PROMPT = `You are an elite AI agent architect specializing in crafting high-performance agent configurations. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
 
@@ -115,7 +115,7 @@ export interface SubagentGeneratedContent {
  */
 export async function subagentGenerator(
   userDescription: string,
-  config: Config,
+  geminiClient: GeminiClient,
   abortSignal: AbortSignal,
 ): Promise<SubagentGeneratedContent> {
   if (!userDescription.trim()) {
@@ -125,13 +125,15 @@ export async function subagentGenerator(
   const userPrompt = createUserPrompt(userDescription);
   const contents: Content[] = [{ role: 'user', parts: [{ text: userPrompt }] }];
 
-  const parsedResponse = (await config.getBaseLlmClient().generateJson({
-    model: config.getModel() || DEFAULT_QWEN_MODEL,
+  const parsedResponse = (await geminiClient.generateJson(
     contents,
-    schema: RESPONSE_SCHEMA,
+    RESPONSE_SCHEMA,
     abortSignal,
-    systemInstruction: SYSTEM_PROMPT,
-  })) as unknown as SubagentGeneratedContent;
+    DEFAULT_QWEN_MODEL,
+    {
+      systemInstruction: SYSTEM_PROMPT,
+    },
+  )) as unknown as SubagentGeneratedContent;
 
   if (
     !parsedResponse ||

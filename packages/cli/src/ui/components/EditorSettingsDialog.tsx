@@ -19,7 +19,6 @@ import { SettingScope } from '../../config/settings.js';
 import type { EditorType } from '@qwen-code/qwen-code-core';
 import { isEditorAvailable } from '@qwen-code/qwen-code-core';
 import { useKeypress } from '../hooks/useKeypress.js';
-import { t } from '../../i18n/index.js';
 
 interface EditorDialogProps {
   onSelect: (editorType: EditorType | undefined, scope: SettingScope) => void;
@@ -67,16 +66,12 @@ export function EditorSettingsDialog({
 
   const scopeItems = [
     {
-      get label() {
-        return t('User Settings');
-      },
+      label: 'User Settings',
       value: SettingScope.User,
       key: SettingScope.User,
     },
     {
-      get label() {
-        return t('Workspace Settings');
-      },
+      label: 'Workspace Settings',
       value: SettingScope.Workspace,
       key: SettingScope.Workspace,
     },
@@ -150,8 +145,7 @@ export function EditorSettingsDialog({
 
         <Box marginTop={1} flexDirection="column">
           <Text bold={focusedSection === 'scope'}>
-            {focusedSection === 'scope' ? '> ' : '  '}
-            {t('Apply To')}
+            {focusedSection === 'scope' ? '> ' : '  '}Apply To
           </Text>
           <RadioButtonSelect
             items={scopeItems}

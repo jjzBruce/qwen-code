@@ -14,7 +14,6 @@ import { useKeypress, type Key } from '../../../hooks/useKeypress.js';
 import { keyMatchers, Command } from '../../../keyMatchers.js';
 import { theme } from '../../../semantic-colors.js';
 import { TextInput } from '../../shared/TextInput.js';
-import { t } from '../../../../i18n/index.js';
 
 /**
  * Step 3: Description input with LLM generation.
@@ -104,9 +103,7 @@ export function DescriptionInput({
       dispatch({
         type: 'SET_VALIDATION_ERRORS',
         errors: [
-          t('Failed to generate subagent: {{error}}', {
-            error: error instanceof Error ? error.message : 'Unknown error',
-          }),
+          `Failed to generate subagent: ${error instanceof Error ? error.message : 'Unknown error'}`,
         ],
       });
     }
@@ -138,17 +135,15 @@ export function DescriptionInput({
     isActive: state.isGenerating,
   });
 
-  const placeholder = t(
-    'e.g., Expert code reviewer that reviews code based on best practices...',
-  );
+  const placeholder =
+    'e.g., Expert code reviewer that reviews code based on best practices...';
 
   return (
     <Box flexDirection="column" gap={1}>
       <Box>
         <Text color={theme.text.secondary}>
-          {t(
-            'Describe what this subagent should do and when it should be used. (Be comprehensive for best results)',
-          )}
+          Describe what this subagent should do and when it should be used. (Be
+          comprehensive for best results)
         </Text>
       </Box>
 
@@ -158,7 +153,7 @@ export function DescriptionInput({
             <Spinner />
           </Box>
           <Text color={theme.text.accent}>
-            {t('Generating subagent configuration...')}
+            Generating subagent configuration...
           </Text>
         </Box>
       ) : (

@@ -62,7 +62,7 @@ import { WriteFileTool } from '../tools/write-file.js';
 
 // Other modules
 import { ideContextStore } from '../ide/ideContext.js';
-import { InputFormat, OutputFormat } from '../output/types.js';
+import { OutputFormat } from '../output/types.js';
 import { PromptRegistry } from '../prompts/prompt-registry.js';
 import { SubagentManager } from '../subagents/subagent-manager.js';
 import {
@@ -81,8 +81,6 @@ import {
 import { shouldAttemptBrowserLaunch } from '../utils/browser.js';
 import { FileExclusions } from '../utils/ignorePatterns.js';
 import { WorkspaceContext } from '../utils/workspaceContext.js';
-import { isToolEnabled, type ToolName } from '../utils/tool-utils.js';
-import { getErrorMessage } from '../utils/errors.js';
 
 // Local config modules
 import type { FileFilteringOptions } from './constants.js';
@@ -216,7 +214,6 @@ export interface ConfigParameters {
   sandbox?: SandboxConfig;
   targetDir: string;
   debugMode: boolean;
-  includePartialMessages?: boolean;
   question?: string;
   fullContext?: boolean;
   coreTools?: string[];
@@ -282,6 +279,7 @@ export interface ConfigParameters {
   skipNextSpeakerCheck?: boolean;
   shellExecutionConfig?: ShellExecutionConfig;
   extensionManagement?: boolean;
+  enablePromptCompletion?: boolean;
   skipLoopDetection?: boolean;
   vlmSwitchMode?: string;
   truncateToolOutputThreshold?: number;
@@ -291,27 +289,6 @@ export interface ConfigParameters {
   useSmartEdit?: boolean;
   output?: OutputSettings;
   skipStartupContext?: boolean;
-  inputFormat?: InputFormat;
-  outputFormat?: OutputFormat;
-}
-
-function normalizeConfigOutputFormat(
-  format: OutputFormat | undefined,
-): OutputFormat | undefined {
-  if (!format) {
-    return undefined;
-  }
-  switch (format) {
-    case 'stream-json':
-      return OutputFormat.STREAM_JSON;
-    case 'json':
-    case OutputFormat.JSON:
-      return OutputFormat.JSON;
-    case 'text':
-    case OutputFormat.TEXT:
-    default:
-      return OutputFormat.TEXT;
-  }
 }
 
 export class Config {
@@ -328,9 +305,6 @@ export class Config {
   private readonly targetDir: string;
   private workspaceContext: WorkspaceContext;
   private readonly debugMode: boolean;
-  private readonly inputFormat: InputFormat;
-  private readonly outputFormat: OutputFormat;
-  private readonly includePartialMessages: boolean;
   private readonly question: string | undefined;
   private readonly fullContext: boolean;
   private readonly coreTools: string[] | undefined;
@@ -402,6 +376,7 @@ export class Config {
   private readonly skipNextSpeakerCheck: boolean;
   private shellExecutionConfig: ShellExecutionConfig;
   private readonly extensionManagement: boolean = true;
+  private readonly enablePromptCompletion: boolean = false;
   private readonly skipLoopDetection: boolean;
   private readonly skipStartupContext: boolean;
   private readonly vlmSwitchMode: string | undefined;
@@ -413,6 +388,7 @@ export class Config {
   private readonly enableToolOutputTruncation: boolean;
   private readonly eventEmitter?: EventEmitter;
   private readonly useSmartEdit: boolean;
+  private readonly outputSettings: OutputSettings;
 
   constructor(params: ConfigParameters) {
     this.sessionId = params.sessionId;
@@ -425,12 +401,6 @@ export class Config {
       params.includeDirectories ?? [],
     );
     this.debugMode = params.debugMode;
-    this.inputFormat = params.inputFormat ?? InputFormat.TEXT;
-    const normalizedOutputFormat = normalizeConfigOutputFormat(
-      params.outputFormat ?? params.output?.format,
-    );
-    this.outputFormat = normalizedOutputFormat ?? OutputFormat.TEXT;
-    this.includePartialMessages = params.includePartialMessages ?? false;
     this.question = params.question;
     this.fullContext = params.fullContext ?? false;
     this.coreTools = params.coreTools;
@@ -524,10 +494,14 @@ export class Config {
     this.useSmartEdit = params.useSmartEdit ?? false;
     this.extensionManagement = params.extensionManagement ?? true;
     this.storage = new Storage(this.targetDir);
+    this.enablePromptCompletion = params.enablePromptCompletion ?? false;
     this.vlmSwitchMode = params.vlmSwitchMode;
-    this.inputFormat = params.inputFormat ?? InputFormat.TEXT;
     this.fileExclusions = new FileExclusions(this);
     this.eventEmitter = params.eventEmitter;
+    this.outputSettings = {
+      format: params.output?.format ?? OutputFormat.TEXT,
+    };
+
     if (params.contextFileName) {
       setGeminiMdFilename(params.contextFileName);
     }
@@ -587,7 +561,7 @@ export class Config {
     }
   }
 
-  async refreshAuth(authMethod: AuthType, isInitialAuth?: boolean) {
+  async refreshAuth(authMethod: AuthType) {
     // Vertex and Genai have incompatible encryption and sending history with
     // throughtSignature from Genai to Vertex will fail, we need to strip them
     if (
@@ -607,7 +581,6 @@ export class Config {
       newContentGeneratorConfig,
       this,
       this.getSessionId(),
-      isInitialAuth,
     );
     // Only assign to instance properties after successful initialization
     this.contentGeneratorConfig = newContentGeneratorConfig;
@@ -811,14 +784,6 @@ export class Config {
 
   getShowMemoryUsage(): boolean {
     return this.showMemoryUsage;
-  }
-
-  getInputFormat(): 'text' | 'stream-json' {
-    return this.inputFormat;
-  }
-
-  getIncludePartialMessages(): boolean {
-    return this.includePartialMessages;
   }
 
   getAccessibility(): AccessibilitySettings {
@@ -1071,6 +1036,10 @@ export class Config {
     return this.accessibility.screenReader ?? false;
   }
 
+  getEnablePromptCompletion(): boolean {
+    return this.enablePromptCompletion;
+  }
+
   getSkipLoopDetection(): boolean {
     return this.skipLoopDetection;
   }
@@ -1117,7 +1086,9 @@ export class Config {
   }
 
   getOutputFormat(): OutputFormat {
-    return this.outputFormat;
+    return this.outputSettings?.format
+      ? this.outputSettings.format
+      : OutputFormat.TEXT;
   }
 
   async getGitService(): Promise<GitService> {
@@ -1139,35 +1110,37 @@ export class Config {
   async createToolRegistry(): Promise<ToolRegistry> {
     const registry = new ToolRegistry(this, this.eventEmitter);
 
-    const coreToolsConfig = this.getCoreTools();
-    const excludeToolsConfig = this.getExcludeTools();
-
-    // Helper to create & register core tools that are enabled
+    // helper to create & register core tools that are enabled
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const registerCoreTool = (ToolClass: any, ...args: unknown[]) => {
-      const toolName = ToolClass?.Name as ToolName | undefined;
-      const className = ToolClass?.name ?? 'UnknownTool';
+      const className = ToolClass.name;
+      const toolName = ToolClass.Name || className;
+      const coreTools = this.getCoreTools();
+      const excludeTools = this.getExcludeTools() || [];
+      // On some platforms, the className can be minified to _ClassName.
+      const normalizedClassName = className.replace(/^_+/, '');
 
-      if (!toolName) {
-        // Log warning and skip this tool instead of crashing
-        console.warn(
-          `[Config] Skipping tool registration: ${className} is missing static Name property. ` +
-            `Tools must define a static Name property to be registered. ` +
-            `Location: config.ts:registerCoreTool`,
+      let isEnabled = true; // Enabled by default if coreTools is not set.
+      if (coreTools) {
+        isEnabled = coreTools.some(
+          (tool) =>
+            tool === toolName ||
+            tool === normalizedClassName ||
+            tool.startsWith(`${toolName}(`) ||
+            tool.startsWith(`${normalizedClassName}(`),
         );
-        return;
       }
 
-      if (isToolEnabled(toolName, coreToolsConfig, excludeToolsConfig)) {
-        try {
-          registry.registerTool(new ToolClass(...args));
-        } catch (error) {
-          console.error(
-            `[Config] Failed to register tool ${className} (${toolName}):`,
-            error,
-          );
-          throw error; // Re-throw after logging context
-        }
+      const isExcluded = excludeTools.some(
+        (tool) => tool === toolName || tool === normalizedClassName,
+      );
+
+      if (isExcluded) {
+        isEnabled = false;
+      }
+
+      if (isEnabled) {
+        registry.registerTool(new ToolClass(...args));
       }
     };
 
@@ -1181,20 +1154,17 @@ export class Config {
       try {
         useRipgrep = await canUseRipgrep(this.getUseBuiltinRipgrep());
       } catch (error: unknown) {
-        errorString = getErrorMessage(error);
+        errorString = String(error);
       }
       if (useRipgrep) {
         registerCoreTool(RipGrepTool, this);
       } else {
+        errorString =
+          errorString ||
+          'Ripgrep is not available. Please install ripgrep globally.';
+
         // Log for telemetry
-        logRipgrepFallback(
-          this,
-          new RipgrepFallbackEvent(
-            this.getUseRipgrep(),
-            this.getUseBuiltinRipgrep(),
-            errorString || 'ripgrep is not available',
-          ),
-        );
+        logRipgrepFallback(this, new RipgrepFallbackEvent(errorString));
         registerCoreTool(GrepTool, this);
       }
     } else {

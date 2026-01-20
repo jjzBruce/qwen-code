@@ -14,7 +14,6 @@ import {
 import type { FunctionDeclaration } from '@google/genai';
 import type { Config } from '../config/config.js';
 import { ApprovalMode } from '../config/config.js';
-import { ToolDisplayNames, ToolNames } from './tool-names.js';
 
 export interface ExitPlanModeParams {
   plan: string;
@@ -153,12 +152,12 @@ export class ExitPlanModeTool extends BaseDeclarativeTool<
   ExitPlanModeParams,
   ToolResult
 > {
-  static readonly Name: string = ToolNames.EXIT_PLAN_MODE;
+  static readonly Name: string = exitPlanModeToolSchemaData.name!;
 
   constructor(private readonly config: Config) {
     super(
       ExitPlanModeTool.Name,
-      ToolDisplayNames.EXIT_PLAN_MODE,
+      'ExitPlanMode',
       exitPlanModeToolDescription,
       Kind.Think,
       exitPlanModeToolSchemaData.parametersJsonSchema as Record<

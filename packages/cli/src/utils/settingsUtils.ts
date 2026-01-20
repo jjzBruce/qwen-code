@@ -16,7 +16,6 @@ import type {
   SettingsValue,
 } from '../config/settingsSchema.js';
 import { getSettingsSchema } from '../config/settingsSchema.js';
-import { t } from '../i18n/index.js';
 
 // The schema is now nested, but many parts of the UI and logic work better
 // with a flattened structure and dot-notation keys. This section flattens the
@@ -447,11 +446,7 @@ export function getDisplayValue(
 
   if (definition?.type === 'enum' && definition.options) {
     const option = definition.options?.find((option) => option.value === value);
-    if (option?.label) {
-      valueString = t(option.label) || option.label;
-    } else {
-      valueString = `${value}`;
-    }
+    valueString = option?.label ?? `${value}`;
   }
 
   // Check if value is different from default OR if it's in modified settings OR if there are pending changes

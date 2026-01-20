@@ -128,14 +128,6 @@ export type AgentRequest = z.infer<typeof agentRequestSchema>;
 
 export type AgentNotification = z.infer<typeof agentNotificationSchema>;
 
-export type AvailableCommandInput = z.infer<typeof availableCommandInputSchema>;
-
-export type AvailableCommand = z.infer<typeof availableCommandSchema>;
-
-export type AvailableCommandsUpdate = z.infer<
-  typeof availableCommandsUpdateSchema
->;
-
 export const writeTextFileRequestSchema = z.object({
   content: z.string(),
   path: z.string(),
@@ -394,21 +386,6 @@ export const promptRequestSchema = z.object({
   sessionId: z.string(),
 });
 
-export const availableCommandInputSchema = z.object({
-  hint: z.string(),
-});
-
-export const availableCommandSchema = z.object({
-  description: z.string(),
-  input: availableCommandInputSchema.nullable().optional(),
-  name: z.string(),
-});
-
-export const availableCommandsUpdateSchema = z.object({
-  availableCommands: z.array(availableCommandSchema),
-  sessionUpdate: z.literal('available_commands_update'),
-});
-
 export const sessionUpdateSchema = z.union([
   z.object({
     content: contentBlockSchema,
@@ -446,7 +423,6 @@ export const sessionUpdateSchema = z.union([
     entries: z.array(planEntrySchema),
     sessionUpdate: z.literal('plan'),
   }),
-  availableCommandsUpdateSchema,
 ]);
 
 export const agentResponseSchema = z.union([

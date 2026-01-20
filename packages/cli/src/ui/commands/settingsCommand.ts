@@ -6,13 +6,10 @@
 
 import type { OpenDialogActionReturn, SlashCommand } from './types.js';
 import { CommandKind } from './types.js';
-import { t } from '../../i18n/index.js';
 
 export const settingsCommand: SlashCommand = {
   name: 'settings',
-  get description() {
-    return t('View and edit Qwen Code settings');
-  },
+  description: 'View and edit Qwen Code settings',
   kind: CommandKind.BUILT_IN,
   action: (_context, _args): OpenDialogActionReturn => ({
     type: 'dialog',

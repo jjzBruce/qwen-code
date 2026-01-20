@@ -6,73 +6,25 @@
 
 import type React from 'react';
 import { useState } from 'react';
-import { z } from 'zod';
 import { Box, Text } from 'ink';
 import { Colors } from '../colors.js';
 import { useKeypress } from '../hooks/useKeypress.js';
-import { t } from '../../i18n/index.js';
 
 interface OpenAIKeyPromptProps {
   onSubmit: (apiKey: string, baseUrl: string, model: string) => void;
   onCancel: () => void;
-  defaultApiKey?: string;
-  defaultBaseUrl?: string;
-  defaultModel?: string;
 }
-
-export const credentialSchema = z.object({
-  apiKey: z.string().min(1, 'API key is required'),
-  baseUrl: z
-    .union([z.string().url('Base URL must be a valid URL'), z.literal('')])
-    .optional(),
-  model: z.string().min(1, 'Model must be a non-empty string').optional(),
-});
-
-export type OpenAICredentials = z.infer<typeof credentialSchema>;
 
 export function OpenAIKeyPrompt({
   onSubmit,
   onCancel,
-  defaultApiKey,
-  defaultBaseUrl,
-  defaultModel,
 }: OpenAIKeyPromptProps): React.JSX.Element {
-  const [apiKey, setApiKey] = useState(defaultApiKey || '');
-  const [baseUrl, setBaseUrl] = useState(defaultBaseUrl || '');
-  const [model, setModel] = useState(defaultModel || '');
+  const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
   const [currentField, setCurrentField] = useState<
     'apiKey' | 'baseUrl' | 'model'
   >('apiKey');
-  const [validationError, setValidationError] = useState<string | null>(null);
-
-  const validateAndSubmit = () => {
-    setValidationError(null);
-
-    try {
-      const validated = credentialSchema.parse({
-        apiKey: apiKey.trim(),
-        baseUrl: baseUrl.trim() || undefined,
-        model: model.trim() || undefined,
-      });
-
-      onSubmit(
-        validated.apiKey,
-        validated.baseUrl === '' ? '' : validated.baseUrl || '',
-        validated.model || '',
-      );
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        const errorMessage = error.errors
-          .map((e) => `${e.path.join('.')}: ${e.message}`)
-          .join(', ');
-        setValidationError(
-          t('Invalid credentials: {{errorMessage}}', { errorMessage }),
-        );
-      } else {
-        setValidationError(t('Failed to validate credentials'));
-      }
-    }
-  };
 
   useKeypress(
     (key) => {
@@ -94,7 +46,7 @@ export function OpenAIKeyPrompt({
         } else if (currentField === 'model') {
           // 只有在提交时才检查 API key 是否为空
           if (apiKey.trim()) {
-            validateAndSubmit();
+            onSubmit(apiKey.trim(), baseUrl.trim(), model.trim());
           } else {
             // 如果 API key 为空，回到 API key 字段
             setCurrentField('apiKey');
@@ -208,18 +160,11 @@ export function OpenAIKeyPrompt({
       width="100%"
     >
       <Text bold color={Colors.AccentBlue}>
-        {t('OpenAI Configuration Required')}
+        OpenAI Configuration Required
       </Text>
-      {validationError && (
-        <Box marginTop={1}>
-          <Text color={Colors.AccentRed}>{validationError}</Text>
-        </Box>
-      )}
       <Box marginTop={1}>
         <Text>
-          {t(
-            'Please enter your OpenAI configuration. You can get an API key from',
-          )}{' '}
+          Please enter your OpenAI configuration. You can get an API key from{' '}
           <Text color={Colors.AccentBlue}>
             https://bailian.console.aliyun.com/?tab=model#/api-key
           </Text>
@@ -230,7 +175,7 @@ export function OpenAIKeyPrompt({
           <Text
             color={currentField === 'apiKey' ? Colors.AccentBlue : Colors.Gray}
           >
-            {t('API Key:')}
+            API Key:
           </Text>
         </Box>
         <Box flexGrow={1}>
@@ -245,7 +190,7 @@ export function OpenAIKeyPrompt({
           <Text
             color={currentField === 'baseUrl' ? Colors.AccentBlue : Colors.Gray}
           >
-            {t('Base URL:')}
+            Base URL:
           </Text>
         </Box>
         <Box flexGrow={1}>
@@ -260,7 +205,7 @@ export function OpenAIKeyPrompt({
           <Text
             color={currentField === 'model' ? Colors.AccentBlue : Colors.Gray}
           >
-            {t('Model:')}
+            Model:
           </Text>
         </Box>
         <Box flexGrow={1}>
@@ -272,7 +217,7 @@ export function OpenAIKeyPrompt({
       </Box>
       <Box marginTop={1}>
         <Text color={Colors.Gray}>
-          {t('Press Enter to continue, Tab/↑↓ to navigate, Esc to cancel')}
+          Press Enter to continue, Tab/↑↓ to navigate, Esc to cancel
         </Text>
       </Box>
     </Box>

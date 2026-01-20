@@ -37,7 +37,6 @@ import {
   EVENT_SUBAGENT_EXECUTION,
   EVENT_MALFORMED_JSON_RESPONSE,
   EVENT_INVALID_CHUNK,
-  EVENT_AUTH,
 } from './constants.js';
 import {
   recordApiErrorMetrics,
@@ -84,7 +83,6 @@ import type {
   SubagentExecutionEvent,
   MalformedJsonResponseEvent,
   InvalidChunkEvent,
-  AuthEvent,
 } from './types.js';
 import type { UiEvent } from './uiTelemetry.js';
 import { uiTelemetryService } from './uiTelemetry.js';
@@ -314,7 +312,7 @@ export function logRipgrepFallback(
   config: Config,
   event: RipgrepFallbackEvent,
 ): void {
-  QwenLogger.getInstance(config)?.logRipgrepFallbackEvent(event);
+  QwenLogger.getInstance(config)?.logRipgrepFallbackEvent();
   if (!isTelemetrySdkInitialized()) return;
 
   const attributes: LogAttributes = {
@@ -836,32 +834,6 @@ export function logExtensionDisable(
   const logger = logs.getLogger(SERVICE_NAME);
   const logRecord: LogRecord = {
     body: `Disabled extension ${event.extension_name}`,
-    attributes,
-  };
-  logger.emit(logRecord);
-}
-
-export function logAuth(config: Config, event: AuthEvent): void {
-  QwenLogger.getInstance(config)?.logAuthEvent(event);
-  if (!isTelemetrySdkInitialized()) return;
-
-  const attributes: LogAttributes = {
-    ...getCommonAttributes(config),
-    ...event,
-    'event.name': EVENT_AUTH,
-    'event.timestamp': new Date().toISOString(),
-    auth_type: event.auth_type,
-    action_type: event.action_type,
-    status: event.status,
-  };
-
-  if (event.error_message) {
-    attributes['error.message'] = event.error_message;
-  }
-
-  const logger = logs.getLogger(SERVICE_NAME);
-  const logRecord: LogRecord = {
-    body: `Auth event: ${event.action_type} ${event.status} for ${event.auth_type}`,
     attributes,
   };
   logger.emit(logRecord);

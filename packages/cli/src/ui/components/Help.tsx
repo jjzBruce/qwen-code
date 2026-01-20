@@ -8,7 +8,6 @@ import type React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../semantic-colors.js';
 import { type SlashCommand, CommandKind } from '../commands/types.js';
-import { t } from '../../i18n/index.js';
 
 interface Help {
   commands: readonly SlashCommand[];
@@ -24,41 +23,46 @@ export const Help: React.FC<Help> = ({ commands }) => (
   >
     {/* Basics */}
     <Text bold color={theme.text.primary}>
-      {t('Basics:')}
+      Basics:
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
-        {t('Add context')}
+        Add context
       </Text>
-      :{' '}
-      {t(
-        'Use {{symbol}} to specify files for context (e.g., {{example}}) to target specific files or folders.',
-        {
-          symbol: t('@'),
-          example: t('@src/myFile.ts'),
-        },
-      )}
+      : Use{' '}
+      <Text bold color={theme.text.accent}>
+        @
+      </Text>{' '}
+      to specify files for context (e.g.,{' '}
+      <Text bold color={theme.text.accent}>
+        @src/myFile.ts
+      </Text>
+      ) to target specific files or folders.
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
-        {t('Shell mode')}
+        Shell mode
       </Text>
-      :{' '}
-      {t(
-        'Execute shell commands via {{symbol}} (e.g., {{example1}}) or use natural language (e.g., {{example2}}).',
-        {
-          symbol: t('!'),
-          example1: t('!npm run start'),
-          example2: t('start server'),
-        },
-      )}
+      : Execute shell commands via{' '}
+      <Text bold color={theme.text.accent}>
+        !
+      </Text>{' '}
+      (e.g.,{' '}
+      <Text bold color={theme.text.accent}>
+        !npm run start
+      </Text>
+      ) or use natural language (e.g.{' '}
+      <Text bold color={theme.text.accent}>
+        start server
+      </Text>
+      ).
     </Text>
 
     <Box height={1} />
 
     {/* Commands */}
     <Text bold color={theme.text.primary}>
-      {t('Commands:')}
+      Commands:
     </Text>
     {commands
       .filter((command) => command.description && !command.hidden)
@@ -93,81 +97,81 @@ export const Help: React.FC<Help> = ({ commands }) => (
         {' '}
         !{' '}
       </Text>
-      - {t('shell command')}
+      - shell command
     </Text>
     <Text color={theme.text.primary}>
-      <Text color={theme.text.secondary}>[MCP]</Text> -{' '}
-      {t('Model Context Protocol command (from external servers)')}
+      <Text color={theme.text.secondary}>[MCP]</Text> - Model Context Protocol
+      command (from external servers)
     </Text>
 
     <Box height={1} />
 
     {/* Shortcuts */}
     <Text bold color={theme.text.primary}>
-      {t('Keyboard Shortcuts:')}
+      Keyboard Shortcuts:
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         Alt+Left/Right
       </Text>{' '}
-      - {t('Jump through words in the input')}
+      - Jump through words in the input
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         Ctrl+C
       </Text>{' '}
-      - {t('Close dialogs, cancel requests, or quit application')}
+      - Close dialogs, cancel requests, or quit application
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         {process.platform === 'win32' ? 'Ctrl+Enter' : 'Ctrl+J'}
       </Text>{' '}
-      -{' '}
       {process.platform === 'linux'
-        ? t('New line (Alt+Enter works for certain linux distros)')
-        : t('New line')}
+        ? '- New line (Alt+Enter works for certain linux distros)'
+        : '- New line'}
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         Ctrl+L
       </Text>{' '}
-      - {t('Clear the screen')}
+      - Clear the screen
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         {process.platform === 'darwin' ? 'Ctrl+X / Meta+Enter' : 'Ctrl+X'}
       </Text>{' '}
-      - {t('Open input in external editor')}
+      - Open input in external editor
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         Enter
       </Text>{' '}
-      - {t('Send message')}
+      - Send message
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         Esc
       </Text>{' '}
-      - {t('Cancel operation / Clear input (double press)')}
+      - Cancel operation / Clear input (double press)
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         Shift+Tab
       </Text>{' '}
-      - {t('Cycle approval modes')}
+      - Cycle approval modes
     </Text>
     <Text color={theme.text.primary}>
       <Text bold color={theme.text.accent}>
         Up/Down
       </Text>{' '}
-      - {t('Cycle through your prompt history')}
+      - Cycle through your prompt history
     </Text>
     <Box height={1} />
     <Text color={theme.text.primary}>
-      {t('For a full list of shortcuts, see {{docPath}}', {
-        docPath: t('docs/keyboard-shortcuts.md'),
-      })}
+      For a full list of shortcuts, see{' '}
+      <Text bold color={theme.text.accent}>
+        docs/keyboard-shortcuts.md
+      </Text>
     </Text>
   </Box>
 );

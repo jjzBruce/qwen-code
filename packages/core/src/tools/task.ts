@@ -5,7 +5,7 @@
  */
 
 import { BaseDeclarativeTool, BaseToolInvocation, Kind } from './tools.js';
-import { ToolNames, ToolDisplayNames } from './tool-names.js';
+import { ToolNames } from './tool-names.js';
 import type {
   ToolResult,
   ToolResultDisplay,
@@ -77,7 +77,7 @@ export class TaskTool extends BaseDeclarativeTool<TaskParams, ToolResult> {
 
     super(
       TaskTool.Name,
-      ToolDisplayNames.TASK,
+      'Task',
       'Delegate tasks to specialized subagents. Loading available subagents...', // Initial description
       Kind.Other,
       initialSchema,
@@ -332,7 +332,7 @@ class TaskToolInvocation extends BaseToolInvocation<TaskParams, ToolResult> {
             ...this.currentToolCalls![toolCallIndex],
             status: event.success ? 'success' : 'failed',
             error: event.error,
-            responseParts: event.responseParts,
+            resultDisplay: event.resultDisplay,
           };
 
           this.updateDisplay(

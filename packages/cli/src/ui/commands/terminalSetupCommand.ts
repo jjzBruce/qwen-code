@@ -7,7 +7,6 @@
 import type { MessageActionReturn, SlashCommand } from './types.js';
 import { CommandKind } from './types.js';
 import { terminalSetup } from '../utils/terminalSetup.js';
-import { t } from '../../i18n/index.js';
 
 /**
  * Command to configure terminal keybindings for multiline input support.
@@ -17,11 +16,8 @@ import { t } from '../../i18n/index.js';
  */
 export const terminalSetupCommand: SlashCommand = {
   name: 'terminal-setup',
-  get description() {
-    return t(
-      'Configure terminal keybindings for multiline input (VS Code, Cursor, Windsurf, Trae)',
-    );
-  },
+  description:
+    'Configure terminal keybindings for multiline input (VS Code, Cursor, Windsurf)',
   kind: CommandKind.BUILT_IN,
 
   action: async (): Promise<MessageActionReturn> => {
@@ -31,8 +27,7 @@ export const terminalSetupCommand: SlashCommand = {
       let content = result.message;
       if (result.requiresRestart) {
         content +=
-          '\n\n' +
-          t('Please restart your terminal for the changes to take effect.');
+          '\n\nPlease restart your terminal for the changes to take effect.';
       }
 
       return {
@@ -43,9 +38,7 @@ export const terminalSetupCommand: SlashCommand = {
     } catch (error) {
       return {
         type: 'message',
-        content: t('Failed to configure terminal: {{error}}', {
-          error: String(error),
-        }),
+        content: `Failed to configure terminal: ${error}`,
         messageType: 'error',
       };
     }

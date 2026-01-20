@@ -14,7 +14,6 @@ import type {
   JsonMcpPrompt,
   JsonMcpTool,
 } from '../../types.js';
-import { t } from '../../../i18n/index.js';
 
 interface McpStatusProps {
   servers: Record<string, MCPServerConfig>;
@@ -48,13 +47,13 @@ export const McpStatus: React.FC<McpStatusProps> = ({
   if (serverNames.length === 0 && blockedServers.length === 0) {
     return (
       <Box flexDirection="column">
-        <Text>{t('No MCP servers configured.')}</Text>
+        <Text>No MCP servers configured.</Text>
         <Text>
-          {t('Please view MCP documentation in your browser:')}{' '}
+          Please view MCP documentation in your browser:{' '}
           <Text color={theme.text.link}>
             https://goo.gle/gemini-cli-docs-mcp
           </Text>{' '}
-          {t('or use the cli /docs command')}
+          or use the cli /docs command
         </Text>
       </Box>
     );
@@ -65,19 +64,17 @@ export const McpStatus: React.FC<McpStatusProps> = ({
       {discoveryInProgress && (
         <Box flexDirection="column" marginBottom={1}>
           <Text color={theme.status.warning}>
-            {t('⏳ MCP servers are starting up ({{count}} initializing)...', {
-              count: String(connectingServers.length),
-            })}
+            ⏳ MCP servers are starting up ({connectingServers.length}{' '}
+            initializing)...
           </Text>
           <Text color={theme.text.primary}>
-            {t(
-              'Note: First startup may take longer. Tool availability will update automatically.',
-            )}
+            Note: First startup may take longer. Tool availability will update
+            automatically.
           </Text>
         </Box>
       )}
 
-      <Text bold>{t('Configured MCP servers:')}</Text>
+      <Text bold>Configured MCP servers:</Text>
       <Box height={1} />
 
       {serverNames.map((serverName) => {
@@ -103,61 +100,50 @@ export const McpStatus: React.FC<McpStatusProps> = ({
         switch (status) {
           case MCPServerStatus.CONNECTED:
             statusIndicator = '🟢';
-            statusText = t('Ready');
+            statusText = 'Ready';
             statusColor = theme.status.success;
             break;
           case MCPServerStatus.CONNECTING:
             statusIndicator = '🔄';
-            statusText = t('Starting... (first startup may take longer)');
+            statusText = 'Starting... (first startup may take longer)';
             statusColor = theme.status.warning;
             break;
           case MCPServerStatus.DISCONNECTED:
           default:
             statusIndicator = '🔴';
-            statusText = t('Disconnected');
+            statusText = 'Disconnected';
             statusColor = theme.status.error;
             break;
         }
 
         let serverDisplayName = serverName;
         if (server.extensionName) {
-          serverDisplayName += ` ${t('(from {{extensionName}})', {
-            extensionName: server.extensionName,
-          })}`;
+          serverDisplayName += ` (from ${server.extensionName})`;
         }
 
         const toolCount = serverTools.length;
         const promptCount = serverPrompts.length;
         const parts = [];
         if (toolCount > 0) {
-          parts.push(
-            toolCount === 1
-              ? t('{{count}} tool', { count: String(toolCount) })
-              : t('{{count}} tools', { count: String(toolCount) }),
-          );
+          parts.push(`${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`);
         }
         if (promptCount > 0) {
           parts.push(
-            promptCount === 1
-              ? t('{{count}} prompt', { count: String(promptCount) })
-              : t('{{count}} prompts', { count: String(promptCount) }),
+            `${promptCount} ${promptCount === 1 ? 'prompt' : 'prompts'}`,
           );
         }
 
         const serverAuthStatus = authStatus[serverName];
         let authStatusNode: React.ReactNode = null;
         if (serverAuthStatus === 'authenticated') {
-          authStatusNode = <Text> ({t('OAuth')})</Text>;
+          authStatusNode = <Text> (OAuth)</Text>;
         } else if (serverAuthStatus === 'expired') {
           authStatusNode = (
-            <Text color={theme.status.error}> ({t('OAuth expired')})</Text>
+            <Text color={theme.status.error}> (OAuth expired)</Text>
           );
         } else if (serverAuthStatus === 'unauthenticated') {
           authStatusNode = (
-            <Text color={theme.status.warning}>
-              {' '}
-              ({t('OAuth not authenticated')})
-            </Text>
+            <Text color={theme.status.warning}> (OAuth not authenticated)</Text>
           );
         }
 
@@ -176,12 +162,10 @@ export const McpStatus: React.FC<McpStatusProps> = ({
               {authStatusNode}
             </Box>
             {status === MCPServerStatus.CONNECTING && (
-              <Text> ({t('tools and prompts will appear when ready')})</Text>
+              <Text> (tools and prompts will appear when ready)</Text>
             )}
             {status === MCPServerStatus.DISCONNECTED && toolCount > 0 && (
-              <Text>
-                ({t('{{count}} tools cached', { count: String(toolCount) })})
-              </Text>
+              <Text> ({toolCount} tools cached)</Text>
             )}
 
             {showDescriptions && server?.description && (
@@ -192,7 +176,7 @@ export const McpStatus: React.FC<McpStatusProps> = ({
 
             {serverTools.length > 0 && (
               <Box flexDirection="column" marginLeft={2}>
-                <Text color={theme.text.primary}>{t('Tools:')}</Text>
+                <Text color={theme.text.primary}>Tools:</Text>
                 {serverTools.map((tool) => {
                   const schemaContent =
                     showSchema &&
@@ -220,9 +204,7 @@ export const McpStatus: React.FC<McpStatusProps> = ({
                       )}
                       {schemaContent && (
                         <Box flexDirection="column" marginLeft={4}>
-                          <Text color={theme.text.secondary}>
-                            {t('Parameters:')}
-                          </Text>
+                          <Text color={theme.text.secondary}>Parameters:</Text>
                           <Text color={theme.text.secondary}>
                             {schemaContent}
                           </Text>
@@ -236,7 +218,7 @@ export const McpStatus: React.FC<McpStatusProps> = ({
 
             {serverPrompts.length > 0 && (
               <Box flexDirection="column" marginLeft={2}>
-                <Text color={theme.text.primary}>{t('Prompts:')}</Text>
+                <Text color={theme.text.primary}>Prompts:</Text>
                 {serverPrompts.map((prompt) => (
                   <Box key={prompt.name} flexDirection="column">
                     <Text>
@@ -262,41 +244,35 @@ export const McpStatus: React.FC<McpStatusProps> = ({
           <Text color={theme.status.error}>🔴 </Text>
           <Text bold>
             {server.name}
-            {server.extensionName
-              ? ` ${t('(from {{extensionName}})', {
-                  extensionName: server.extensionName,
-                })}`
-              : ''}
+            {server.extensionName ? ` (from ${server.extensionName})` : ''}
           </Text>
-          <Text> - {t('Blocked')}</Text>
+          <Text> - Blocked</Text>
         </Box>
       ))}
 
       {showTips && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={theme.text.accent}>{t('💡 Tips:')}</Text>
+          <Text color={theme.text.accent}>💡 Tips:</Text>
           <Text>
-            {'  '}- {t('Use')} <Text color={theme.text.accent}>/mcp desc</Text>{' '}
-            {t('to show server and tool descriptions')}
+            {'  '}- Use <Text color={theme.text.accent}>/mcp desc</Text> to show
+            server and tool descriptions
           </Text>
           <Text>
-            {'  '}- {t('Use')}{' '}
-            <Text color={theme.text.accent}>/mcp schema</Text>{' '}
-            {t('to show tool parameter schemas')}
+            {'  '}- Use <Text color={theme.text.accent}>/mcp schema</Text> to
+            show tool parameter schemas
           </Text>
           <Text>
-            {'  '}- {t('Use')}{' '}
-            <Text color={theme.text.accent}>/mcp nodesc</Text>{' '}
-            {t('to hide descriptions')}
+            {'  '}- Use <Text color={theme.text.accent}>/mcp nodesc</Text> to
+            hide descriptions
           </Text>
           <Text>
-            {'  '}- {t('Use')}{' '}
+            {'  '}- Use{' '}
             <Text color={theme.text.accent}>/mcp auth &lt;server-name&gt;</Text>{' '}
-            {t('to authenticate with OAuth-enabled servers')}
+            to authenticate with OAuth-enabled servers
           </Text>
           <Text>
-            {'  '}- {t('Press')} <Text color={theme.text.accent}>Ctrl+T</Text>{' '}
-            {t('to toggle tool descriptions on/off')}
+            {'  '}- Press <Text color={theme.text.accent}>Ctrl+T</Text> to
+            toggle tool descriptions on/off
           </Text>
         </Box>
       )}

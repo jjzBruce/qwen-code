@@ -6,15 +6,9 @@
 
 import type { SessionMetrics } from '../telemetry/uiTelemetry.js';
 
-export enum InputFormat {
-  TEXT = 'text',
-  STREAM_JSON = 'stream-json',
-}
-
 export enum OutputFormat {
   TEXT = 'text',
   JSON = 'json',
-  STREAM_JSON = 'stream-json',
 }
 
 export interface JsonError {

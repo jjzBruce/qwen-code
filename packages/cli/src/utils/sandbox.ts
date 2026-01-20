@@ -848,7 +848,7 @@ export async function start_sandbox(
       sandboxProcess?.on('close', (code, signal) => {
         process.stdin.resume();
         if (code !== 0 && code !== null) {
-          console.error(
+          console.log(
             `Sandbox process exited with code: ${code}, signal: ${signal}`,
           );
         }

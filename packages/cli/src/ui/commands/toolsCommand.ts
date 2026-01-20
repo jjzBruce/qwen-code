@@ -10,13 +10,10 @@ import {
   CommandKind,
 } from './types.js';
 import { MessageType, type HistoryItemToolsList } from '../types.js';
-import { t } from '../../i18n/index.js';
 
 export const toolsCommand: SlashCommand = {
   name: 'tools',
-  get description() {
-    return t('list available Qwen Code tools. Usage: /tools [desc]');
-  },
+  description: 'list available Qwen Code tools. Usage: /tools [desc]',
   kind: CommandKind.BUILT_IN,
   action: async (context: CommandContext, args?: string): Promise<void> => {
     const subCommand = args?.trim();
@@ -32,7 +29,7 @@ export const toolsCommand: SlashCommand = {
       context.ui.addItem(
         {
           type: MessageType.ERROR,
-          text: t('Could not retrieve tool registry.'),
+          text: 'Could not retrieve tool registry.',
         },
         Date.now(),
       );

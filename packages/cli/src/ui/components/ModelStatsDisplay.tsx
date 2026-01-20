@@ -15,7 +15,6 @@ import {
 } from '../utils/computeStats.js';
 import type { ModelMetrics } from '../contexts/SessionContext.js';
 import { useSessionStats } from '../contexts/SessionContext.js';
-import { t } from '../../i18n/index.js';
 
 const METRIC_COL_WIDTH = 28;
 const MODEL_COL_WIDTH = 22;
@@ -66,7 +65,7 @@ export const ModelStatsDisplay: React.FC = () => {
         paddingX={2}
       >
         <Text color={theme.text.primary}>
-          {t('No API calls have been made in this session.')}
+          No API calls have been made in this session.
         </Text>
       </Box>
     );
@@ -95,7 +94,7 @@ export const ModelStatsDisplay: React.FC = () => {
       paddingX={2}
     >
       <Text bold color={theme.text.accent}>
-        {t('Model Stats For Nerds')}
+        Model Stats For Nerds
       </Text>
       <Box height={1} />
 
@@ -103,7 +102,7 @@ export const ModelStatsDisplay: React.FC = () => {
       <Box>
         <Box width={METRIC_COL_WIDTH}>
           <Text bold color={theme.text.primary}>
-            {t('Metric')}
+            Metric
           </Text>
         </Box>
         {modelNames.map((name) => (
@@ -126,13 +125,13 @@ export const ModelStatsDisplay: React.FC = () => {
       />
 
       {/* API Section */}
-      <StatRow title={t('API')} values={[]} isSection />
+      <StatRow title="API" values={[]} isSection />
       <StatRow
-        title={t('Requests')}
+        title="Requests"
         values={getModelValues((m) => m.api.totalRequests.toLocaleString())}
       />
       <StatRow
-        title={t('Errors')}
+        title="Errors"
         values={getModelValues((m) => {
           const errorRate = calculateErrorRate(m);
           return (
@@ -147,7 +146,7 @@ export const ModelStatsDisplay: React.FC = () => {
         })}
       />
       <StatRow
-        title={t('Avg Latency')}
+        title="Avg Latency"
         values={getModelValues((m) => {
           const avgLatency = calculateAverageLatency(m);
           return formatDuration(avgLatency);
@@ -157,9 +156,9 @@ export const ModelStatsDisplay: React.FC = () => {
       <Box height={1} />
 
       {/* Tokens Section */}
-      <StatRow title={t('Tokens')} values={[]} isSection />
+      <StatRow title="Tokens" values={[]} isSection />
       <StatRow
-        title={t('Total')}
+        title="Total"
         values={getModelValues((m) => (
           <Text color={theme.status.warning}>
             {m.tokens.total.toLocaleString()}
@@ -167,13 +166,13 @@ export const ModelStatsDisplay: React.FC = () => {
         ))}
       />
       <StatRow
-        title={t('Prompt')}
+        title="Prompt"
         isSubtle
         values={getModelValues((m) => m.tokens.prompt.toLocaleString())}
       />
       {hasCached && (
         <StatRow
-          title={t('Cached')}
+          title="Cached"
           isSubtle
           values={getModelValues((m) => {
             const cacheHitRate = calculateCacheHitRate(m);
@@ -187,20 +186,20 @@ export const ModelStatsDisplay: React.FC = () => {
       )}
       {hasThoughts && (
         <StatRow
-          title={t('Thoughts')}
+          title="Thoughts"
           isSubtle
           values={getModelValues((m) => m.tokens.thoughts.toLocaleString())}
         />
       )}
       {hasTool && (
         <StatRow
-          title={t('Tool')}
+          title="Tool"
           isSubtle
           values={getModelValues((m) => m.tokens.tool.toLocaleString())}
         />
       )}
       <StatRow
-        title={t('Output')}
+        title="Output"
         isSubtle
         values={getModelValues((m) => m.tokens.candidates.toLocaleString())}
       />

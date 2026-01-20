@@ -14,7 +14,6 @@ import * as process from 'process';
 
 import { QWEN_DIR } from '../utils/paths.js';
 import type { Config } from '../config/config.js';
-import { ToolDisplayNames, ToolNames } from './tool-names.js';
 
 export interface TodoItem {
   id: string;
@@ -423,12 +422,12 @@ export class TodoWriteTool extends BaseDeclarativeTool<
   TodoWriteParams,
   ToolResult
 > {
-  static readonly Name: string = ToolNames.TODO_WRITE;
+  static readonly Name: string = todoWriteToolSchemaData.name!;
 
   constructor(private readonly config: Config) {
     super(
       TodoWriteTool.Name,
-      ToolDisplayNames.TODO_WRITE,
+      'TodoWrite',
       todoWriteToolDescription,
       Kind.Think,
       todoWriteToolSchemaData.parametersJsonSchema as Record<string, unknown>,

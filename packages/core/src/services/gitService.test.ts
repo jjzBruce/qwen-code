@@ -19,10 +19,10 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import { getProjectHash, QWEN_DIR } from '../utils/paths.js';
-import { isCommandAvailable } from '../utils/shell-utils.js';
+import { spawnAsync } from '../utils/shell-utils.js';
 
 vi.mock('../utils/shell-utils.js', () => ({
-  isCommandAvailable: vi.fn(),
+  spawnAsync: vi.fn(),
 }));
 
 const hoistedMockEnv = vi.hoisted(() => vi.fn());
@@ -76,7 +76,10 @@ describe('GitService', () => {
 
     vi.clearAllMocks();
     hoistedIsGitRepositoryMock.mockReturnValue(true);
-    (isCommandAvailable as Mock).mockReturnValue({ available: true });
+    (spawnAsync as Mock).mockResolvedValue({
+      stdout: 'git version 2.0.0',
+      stderr: '',
+    });
 
     hoistedMockHomedir.mockReturnValue(homedir);
 
@@ -116,9 +119,23 @@ describe('GitService', () => {
     });
   });
 
+  describe('verifyGitAvailability', () => {
+    it('should resolve true if git --version command succeeds', async () => {
+      const service = new GitService(projectRoot, storage);
+      await expect(service.verifyGitAvailability()).resolves.toBe(true);
+      expect(spawnAsync).toHaveBeenCalledWith('git', ['--version']);
+    });
+
+    it('should resolve false if git --version command fails', async () => {
+      (spawnAsync as Mock).mockRejectedValue(new Error('git not found'));
+      const service = new GitService(projectRoot, storage);
+      await expect(service.verifyGitAvailability()).resolves.toBe(false);
+    });
+  });
+
   describe('initialize', () => {
     it('should throw an error if Git is not available', async () => {
-      (isCommandAvailable as Mock).mockReturnValue({ available: false });
+      (spawnAsync as Mock).mockRejectedValue(new Error('git not found'));
       const service = new GitService(projectRoot, storage);
       await expect(service.initialize()).rejects.toThrow(
         'Checkpointing is enabled, but Git is not installed. Please install Git or disable checkpointing to continue.',

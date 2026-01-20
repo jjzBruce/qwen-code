@@ -8,7 +8,6 @@ import type React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../semantic-colors.js';
 import { ApprovalMode } from '@qwen-code/qwen-code-core';
-import { t } from '../../i18n/index.js';
 
 interface AutoAcceptIndicatorProps {
   approvalMode: ApprovalMode;
@@ -24,18 +23,18 @@ export const AutoAcceptIndicator: React.FC<AutoAcceptIndicatorProps> = ({
   switch (approvalMode) {
     case ApprovalMode.PLAN:
       textColor = theme.status.success;
-      textContent = t('plan mode');
-      subText = ` ${t('(shift + tab to cycle)')}`;
+      textContent = 'plan mode';
+      subText = ' (shift + tab to cycle)';
       break;
     case ApprovalMode.AUTO_EDIT:
       textColor = theme.status.warning;
-      textContent = t('auto-accept edits');
-      subText = ` ${t('(shift + tab to cycle)')}`;
+      textContent = 'auto-accept edits';
+      subText = ' (shift + tab to cycle)';
       break;
     case ApprovalMode.YOLO:
       textColor = theme.status.error;
-      textContent = t('YOLO mode');
-      subText = ` ${t('(shift + tab to cycle)')}`;
+      textContent = 'YOLO mode';
+      subText = ' (shift + tab to cycle)';
       break;
     case ApprovalMode.DEFAULT:
     default:

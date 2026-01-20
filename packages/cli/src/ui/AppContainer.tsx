@@ -25,6 +25,7 @@ import {
   type HistoryItem,
   ToolCallStatus,
   type HistoryItemWithoutId,
+  AuthState,
 } from './types.js';
 import { MessageType, StreamingState } from './types.js';
 import {
@@ -47,11 +48,11 @@ import { useHistory } from './hooks/useHistoryManager.js';
 import { useMemoryMonitor } from './hooks/useMemoryMonitor.js';
 import { useThemeCommand } from './hooks/useThemeCommand.js';
 import { useAuthCommand } from './auth/useAuth.js';
+import { useQwenAuth } from './hooks/useQwenAuth.js';
 import { useQuotaAndFallback } from './hooks/useQuotaAndFallback.js';
 import { useEditorSettings } from './hooks/useEditorSettings.js';
 import { useSettingsCommand } from './hooks/useSettingsCommand.js';
 import { useModelCommand } from './hooks/useModelCommand.js';
-import { useApprovalModeCommand } from './hooks/useApprovalModeCommand.js';
 import { useSlashCommandProcessor } from './hooks/slashCommandProcessor.js';
 import { useVimMode } from './contexts/VimModeContext.js';
 import { useConsoleMessages } from './hooks/useConsoleMessages.js';
@@ -89,15 +90,12 @@ import { useGitBranchName } from './hooks/useGitBranchName.js';
 import { useExtensionUpdates } from './hooks/useExtensionUpdates.js';
 import { ShellFocusContext } from './contexts/ShellFocusContext.js';
 import { useQuitConfirmation } from './hooks/useQuitConfirmation.js';
-import { t } from '../i18n/index.js';
 import { useWelcomeBack } from './hooks/useWelcomeBack.js';
 import { useDialogClose } from './hooks/useDialogClose.js';
-import { useInitializationAuthError } from './hooks/useInitializationAuthError.js';
 import { type VisionSwitchOutcome } from './components/ModelSwitchDialog.js';
 import { processVisionSwitchOutcome } from './hooks/useVisionAutoSwitch.js';
 import { useSubagentCreateDialog } from './hooks/useSubagentCreateDialog.js';
 import { useAgentsManagerDialog } from './hooks/useAgentsManagerDialog.js';
-import { useAttentionNotifications } from './hooks/useAttentionNotifications.js';
 
 const CTRL_EXIT_PROMPT_DURATION_MS = 1000;
 
@@ -338,23 +336,24 @@ export const AppContainer = (props: AppContainerProps) => {
   );
 
   const {
-    isApprovalModeDialogOpen,
-    openApprovalModeDialog,
-    handleApprovalModeSelect,
-  } = useApprovalModeCommand(settings, config);
-
-  const {
     setAuthState,
     authError,
     onAuthError,
     isAuthDialogOpen,
     isAuthenticating,
-    pendingAuthType,
-    qwenAuthState,
     handleAuthSelect,
     openAuthDialog,
-    cancelAuthentication,
-  } = useAuthCommand(settings, config, historyManager.addItem);
+  } = useAuthCommand(settings, config);
+
+  // Qwen OAuth authentication state
+  const {
+    isQwenAuth,
+    isQwenAuthenticating,
+    deviceAuth,
+    authStatus,
+    authMessage,
+    cancelQwenAuth,
+  } = useQwenAuth(settings, isAuthenticating);
 
   const { proQuotaRequest, handleProQuotaChoice } = useQuotaAndFallback({
     config,
@@ -364,7 +363,19 @@ export const AppContainer = (props: AppContainerProps) => {
     setModelSwitchedFromQuotaError,
   });
 
-  useInitializationAuthError(initializationResult.authError, onAuthError);
+  // Handle Qwen OAuth timeout
+  const handleQwenAuthTimeout = useCallback(() => {
+    onAuthError('Qwen OAuth authentication timed out. Please try again.');
+    cancelQwenAuth();
+    setAuthState(AuthState.Updating);
+  }, [onAuthError, cancelQwenAuth, setAuthState]);
+
+  // Handle Qwen OAuth cancel
+  const handleQwenAuthCancel = useCallback(() => {
+    onAuthError('Qwen OAuth authentication cancelled.');
+    cancelQwenAuth();
+    setAuthState(AuthState.Updating);
+  }, [onAuthError, cancelQwenAuth, setAuthState]);
 
   // Sync user tier from config when authentication changes
   // TODO: Implement getUserTier() method on Config if needed
@@ -376,8 +387,6 @@ export const AppContainer = (props: AppContainerProps) => {
 
   // Check for enforced auth type mismatch
   useEffect(() => {
-    // Check for initialization error first
-
     if (
       settings.merged.security?.auth?.enforcedType &&
       settings.merged.security?.auth.selectedType &&
@@ -385,13 +394,7 @@ export const AppContainer = (props: AppContainerProps) => {
         settings.merged.security?.auth.selectedType
     ) {
       onAuthError(
-        t(
-          'Authentication is enforced to be {{enforcedType}}, but you are currently using {{currentType}}.',
-          {
-            enforcedType: settings.merged.security?.auth.enforcedType,
-            currentType: settings.merged.security?.auth.selectedType,
-          },
-        ),
+        `Authentication is enforced to be ${settings.merged.security?.auth.enforcedType}, but you are currently using ${settings.merged.security?.auth.selectedType}.`,
       );
     } else if (
       settings.merged.security?.auth?.selectedType &&
@@ -467,7 +470,6 @@ export const AppContainer = (props: AppContainerProps) => {
       openSettingsDialog,
       openModelDialog,
       openPermissionsDialog,
-      openApprovalModeDialog,
       quit: (messages: HistoryItem[]) => {
         setQuittingMessages(messages);
         setTimeout(async () => {
@@ -493,7 +495,6 @@ export const AppContainer = (props: AppContainerProps) => {
       setCorgiMode,
       dispatchExtensionStateUpdate,
       openPermissionsDialog,
-      openApprovalModeDialog,
       addConfirmUpdateExtensionRequest,
       showQuitConfirmation,
       openSubagentCreateDialog,
@@ -934,21 +935,13 @@ export const AppContainer = (props: AppContainerProps) => {
     settings.merged.ui?.customWittyPhrases,
   );
 
-  useAttentionNotifications({
-    isFocused,
-    streamingState,
-    elapsedTime,
-  });
-
   // Dialog close functionality
   const { closeAnyOpenDialog } = useDialogClose({
     isThemeDialogOpen,
     handleThemeSelect,
-    isApprovalModeDialogOpen,
-    handleApprovalModeSelect,
     isAuthDialogOpen,
     handleAuthSelect,
-    pendingAuthType,
+    selectedAuthType: settings.merged.security?.auth?.selectedType,
     isEditorDialogOpen,
     exitEditorDialog,
     isSettingsDialogOpen,
@@ -1190,13 +1183,12 @@ export const AppContainer = (props: AppContainerProps) => {
     isVisionSwitchDialogOpen ||
     isPermissionsDialogOpen ||
     isAuthDialogOpen ||
-    isAuthenticating ||
+    (isAuthenticating && isQwenAuthenticating) ||
     isEditorDialogOpen ||
     showIdeRestartPrompt ||
     !!proQuotaRequest ||
     isSubagentCreateDialogOpen ||
-    isAgentsManagerDialogOpen ||
-    isApprovalModeDialogOpen;
+    isAgentsManagerDialogOpen;
 
   const pendingHistoryItems = useMemo(
     () => [...pendingSlashCommandHistoryItems, ...pendingGeminiHistoryItems],
@@ -1213,9 +1205,12 @@ export const AppContainer = (props: AppContainerProps) => {
       isConfigInitialized,
       authError,
       isAuthDialogOpen,
-      pendingAuthType,
       // Qwen OAuth state
-      qwenAuthState,
+      isQwenAuth,
+      isQwenAuthenticating,
+      deviceAuth,
+      authStatus,
+      authMessage,
       editorError,
       isEditorDialogOpen,
       corgiMode,
@@ -1224,7 +1219,6 @@ export const AppContainer = (props: AppContainerProps) => {
       isSettingsDialogOpen,
       isModelDialogOpen,
       isPermissionsDialogOpen,
-      isApprovalModeDialogOpen,
       slashCommands,
       pendingSlashCommandHistoryItems,
       commandContext,
@@ -1305,9 +1299,12 @@ export const AppContainer = (props: AppContainerProps) => {
       isConfigInitialized,
       authError,
       isAuthDialogOpen,
-      pendingAuthType,
       // Qwen OAuth state
-      qwenAuthState,
+      isQwenAuth,
+      isQwenAuthenticating,
+      deviceAuth,
+      authStatus,
+      authMessage,
       editorError,
       isEditorDialogOpen,
       corgiMode,
@@ -1316,7 +1313,6 @@ export const AppContainer = (props: AppContainerProps) => {
       isSettingsDialogOpen,
       isModelDialogOpen,
       isPermissionsDialogOpen,
-      isApprovalModeDialogOpen,
       slashCommands,
       pendingSlashCommandHistoryItems,
       commandContext,
@@ -1397,11 +1393,12 @@ export const AppContainer = (props: AppContainerProps) => {
     () => ({
       handleThemeSelect,
       handleThemeHighlight,
-      handleApprovalModeSelect,
       handleAuthSelect,
       setAuthState,
       onAuthError,
-      cancelAuthentication,
+      // Qwen OAuth handlers
+      handleQwenAuthTimeout,
+      handleQwenAuthCancel,
       handleEditorSelect,
       exitEditorDialog,
       closeSettingsDialog,
@@ -1431,11 +1428,12 @@ export const AppContainer = (props: AppContainerProps) => {
     [
       handleThemeSelect,
       handleThemeHighlight,
-      handleApprovalModeSelect,
       handleAuthSelect,
       setAuthState,
       onAuthError,
-      cancelAuthentication,
+      // Qwen OAuth handlers
+      handleQwenAuthTimeout,
+      handleQwenAuthCancel,
       handleEditorSelect,
       exitEditorDialog,
       closeSettingsDialog,

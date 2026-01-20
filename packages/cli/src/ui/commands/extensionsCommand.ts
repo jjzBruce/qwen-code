@@ -19,7 +19,6 @@ import {
   type SlashCommand,
   CommandKind,
 } from './types.js';
-import { t } from '../../i18n/index.js';
 
 async function listAction(context: CommandContext) {
   context.ui.addItem(
@@ -132,18 +131,14 @@ async function updateAction(context: CommandContext, args: string) {
 
 const listExtensionsCommand: SlashCommand = {
   name: 'list',
-  get description() {
-    return t('List active extensions');
-  },
+  description: 'List active extensions',
   kind: CommandKind.BUILT_IN,
   action: listAction,
 };
 
 const updateExtensionsCommand: SlashCommand = {
   name: 'update',
-  get description() {
-    return t('Update extensions. Usage: update <extension-names>|--all');
-  },
+  description: 'Update extensions. Usage: update <extension-names>|--all',
   kind: CommandKind.BUILT_IN,
   action: updateAction,
   completion: async (context, partialArg) => {
@@ -163,9 +158,7 @@ const updateExtensionsCommand: SlashCommand = {
 
 export const extensionsCommand: SlashCommand = {
   name: 'extensions',
-  get description() {
-    return t('Manage extensions');
-  },
+  description: 'Manage extensions',
   kind: CommandKind.BUILT_IN,
   subCommands: [listExtensionsCommand, updateExtensionsCommand],
   action: (context, args) =>

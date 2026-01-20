@@ -24,13 +24,10 @@ import {
 } from '@qwen-code/qwen-code-core';
 import { appEvents, AppEvent } from '../../utils/events.js';
 import { MessageType, type HistoryItemMcpStatus } from '../types.js';
-import { t } from '../../i18n/index.js';
 
 const authCommand: SlashCommand = {
   name: 'auth',
-  get description() {
-    return t('Authenticate with an OAuth-enabled MCP server');
-  },
+  description: 'Authenticate with an OAuth-enabled MCP server',
   kind: CommandKind.BUILT_IN,
   action: async (
     context: CommandContext,
@@ -43,7 +40,7 @@ const authCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Config not loaded.'),
+        content: 'Config not loaded.',
       };
     }
 
@@ -59,14 +56,14 @@ const authCommand: SlashCommand = {
         return {
           type: 'message',
           messageType: 'info',
-          content: t('No MCP servers configured with OAuth authentication.'),
+          content: 'No MCP servers configured with OAuth authentication.',
         };
       }
 
       return {
         type: 'message',
         messageType: 'info',
-        content: `${t('MCP servers with OAuth authentication:')}\n${oauthServers.map((s) => `  - ${s}`).join('\n')}\n\n${t('Use /mcp auth <server-name> to authenticate.')}`,
+        content: `MCP servers with OAuth authentication:\n${oauthServers.map((s) => `  - ${s}`).join('\n')}\n\nUse /mcp auth <server-name> to authenticate.`,
       };
     }
 
@@ -75,7 +72,7 @@ const authCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t("MCP server '{{name}}' not found.", { name: serverName }),
+        content: `MCP server '${serverName}' not found.`,
       };
     }
 
@@ -92,12 +89,7 @@ const authCommand: SlashCommand = {
       context.ui.addItem(
         {
           type: 'info',
-          text: t(
-            "Starting OAuth authentication for MCP server '{{name}}'...",
-            {
-              name: serverName,
-            },
-          ),
+          text: `Starting OAuth authentication for MCP server '${serverName}'...`,
         },
         Date.now(),
       );
@@ -119,12 +111,7 @@ const authCommand: SlashCommand = {
       context.ui.addItem(
         {
           type: 'info',
-          text: t(
-            "Successfully authenticated and refreshed tools for '{{name}}'.",
-            {
-              name: serverName,
-            },
-          ),
+          text: `✅ Successfully authenticated with MCP server '${serverName}'!`,
         },
         Date.now(),
       );
@@ -135,9 +122,7 @@ const authCommand: SlashCommand = {
         context.ui.addItem(
           {
             type: 'info',
-            text: t("Re-discovering tools from '{{name}}'...", {
-              name: serverName,
-            }),
+            text: `Re-discovering tools from '${serverName}'...`,
           },
           Date.now(),
         );
@@ -155,24 +140,13 @@ const authCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'info',
-        content: t(
-          "Successfully authenticated and refreshed tools for '{{name}}'.",
-          {
-            name: serverName,
-          },
-        ),
+        content: `Successfully authenticated and refreshed tools for '${serverName}'.`,
       };
     } catch (error) {
       return {
         type: 'message',
         messageType: 'error',
-        content: t(
-          "Failed to authenticate with MCP server '{{name}}': {{error}}",
-          {
-            name: serverName,
-            error: getErrorMessage(error),
-          },
-        ),
+        content: `Failed to authenticate with MCP server '${serverName}': ${getErrorMessage(error)}`,
       };
     } finally {
       appEvents.removeListener(AppEvent.OauthDisplayMessage, displayListener);
@@ -191,9 +165,7 @@ const authCommand: SlashCommand = {
 
 const listCommand: SlashCommand = {
   name: 'list',
-  get description() {
-    return t('List configured MCP servers and tools');
-  },
+  description: 'List configured MCP servers and tools',
   kind: CommandKind.BUILT_IN,
   action: async (
     context: CommandContext,
@@ -204,7 +176,7 @@ const listCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Config not loaded.'),
+        content: 'Config not loaded.',
       };
     }
 
@@ -213,7 +185,7 @@ const listCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Could not retrieve tool registry.'),
+        content: 'Could not retrieve tool registry.',
       };
     }
 
@@ -304,9 +276,7 @@ const listCommand: SlashCommand = {
 
 const refreshCommand: SlashCommand = {
   name: 'refresh',
-  get description() {
-    return t('Restarts MCP servers.');
-  },
+  description: 'Restarts MCP servers.',
   kind: CommandKind.BUILT_IN,
   action: async (
     context: CommandContext,
@@ -316,7 +286,7 @@ const refreshCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Config not loaded.'),
+        content: 'Config not loaded.',
       };
     }
 
@@ -325,14 +295,14 @@ const refreshCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Could not retrieve tool registry.'),
+        content: 'Could not retrieve tool registry.',
       };
     }
 
     context.ui.addItem(
       {
         type: 'info',
-        text: t('Restarting MCP servers...'),
+        text: 'Restarting MCP servers...',
       },
       Date.now(),
     );
@@ -354,11 +324,8 @@ const refreshCommand: SlashCommand = {
 
 export const mcpCommand: SlashCommand = {
   name: 'mcp',
-  get description() {
-    return t(
-      'list configured MCP servers and tools, or authenticate with OAuth-enabled servers',
-    );
-  },
+  description:
+    'list configured MCP servers and tools, or authenticate with OAuth-enabled servers',
   kind: CommandKind.BUILT_IN,
   subCommands: [listCommand, authCommand, refreshCommand],
   // Default action when no subcommand is provided

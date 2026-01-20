@@ -7,13 +7,10 @@
 import { copyToClipboard } from '../utils/commandUtils.js';
 import type { SlashCommand, SlashCommandActionReturn } from './types.js';
 import { CommandKind } from './types.js';
-import { t } from '../../i18n/index.js';
 
 export const copyCommand: SlashCommand = {
   name: 'copy',
-  get description() {
-    return t('Copy the last result or code snippet to clipboard');
-  },
+  description: 'Copy the last result or code snippet to clipboard',
   kind: CommandKind.BUILT_IN,
   action: async (context, _args): Promise<SlashCommandActionReturn | void> => {
     const chat = await context.services.config?.getGeminiClient()?.getChat();

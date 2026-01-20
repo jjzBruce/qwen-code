@@ -10,9 +10,6 @@ import { AuthType, OutputFormat } from '@qwen-code/qwen-code-core';
 import type { Config } from '@qwen-code/qwen-code-core';
 import * as auth from './config/auth.js';
 import { type LoadedSettings } from './config/settings.js';
-import * as JsonOutputAdapterModule from './nonInteractive/io/JsonOutputAdapter.js';
-import * as StreamJsonOutputAdapterModule from './nonInteractive/io/StreamJsonOutputAdapter.js';
-import * as cleanupModule from './utils/cleanup.js';
 
 describe('validateNonInterActiveAuth', () => {
   let originalEnvGeminiApiKey: string | undefined;
@@ -20,8 +17,8 @@ describe('validateNonInterActiveAuth', () => {
   let originalEnvGcp: string | undefined;
   let originalEnvOpenAiApiKey: string | undefined;
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
-  let processExitSpy: ReturnType<typeof vi.spyOn<[code?: number], never>>;
-  let refreshAuthMock: ReturnType<typeof vi.fn>;
+  let processExitSpy: ReturnType<typeof vi.spyOn>;
+  let refreshAuthMock: vi.Mock;
   let mockSettings: LoadedSettings;
 
   beforeEach(() => {
@@ -36,7 +33,7 @@ describe('validateNonInterActiveAuth', () => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     processExitSpy = vi.spyOn(process, 'exit').mockImplementation((code) => {
       throw new Error(`process.exit(${code}) called`);
-    }) as ReturnType<typeof vi.spyOn<[code?: number], never>>;
+    });
     refreshAuthMock = vi.fn().mockResolvedValue('refreshed');
     mockSettings = {
       system: { path: '', settings: {} },
@@ -238,24 +235,7 @@ describe('validateNonInterActiveAuth', () => {
   });
 
   describe('JSON output mode', () => {
-    let emitResultMock: ReturnType<typeof vi.fn>;
-    let runExitCleanupMock: ReturnType<typeof vi.fn>;
-
-    beforeEach(() => {
-      emitResultMock = vi.fn();
-      runExitCleanupMock = vi.fn().mockResolvedValue(undefined);
-      vi.spyOn(JsonOutputAdapterModule, 'JsonOutputAdapter').mockImplementation(
-        () =>
-          ({
-            emitResult: emitResultMock,
-          }) as unknown as JsonOutputAdapterModule.JsonOutputAdapter,
-      );
-      vi.spyOn(cleanupModule, 'runExitCleanup').mockImplementation(
-        runExitCleanupMock,
-      );
-    });
-
-    it('emits error result and exits when no auth is configured', async () => {
+    it('prints JSON error when no auth is configured and exits with code 1', async () => {
       const nonInteractiveConfig = {
         refreshAuth: refreshAuthMock,
         getOutputFormat: vi.fn().mockReturnValue(OutputFormat.JSON),
@@ -264,6 +244,7 @@ describe('validateNonInterActiveAuth', () => {
           .mockReturnValue({ authType: undefined }),
       } as unknown as Config;
 
+      let thrown: Error | undefined;
       try {
         await validateNonInteractiveAuth(
           undefined,
@@ -271,27 +252,21 @@ describe('validateNonInterActiveAuth', () => {
           nonInteractiveConfig,
           mockSettings,
         );
-        expect.fail('Should have exited');
       } catch (e) {
-        expect((e as Error).message).toContain('process.exit(1) called');
+        thrown = e as Error;
       }
 
-      expect(emitResultMock).toHaveBeenCalledWith({
-        isError: true,
-        errorMessage: expect.stringContaining(
-          'Please set an Auth method in your',
-        ),
-        durationMs: 0,
-        apiDurationMs: 0,
-        numTurns: 0,
-        usage: undefined,
-      });
-      expect(runExitCleanupMock).toHaveBeenCalled();
-      expect(processExitSpy).toHaveBeenCalledWith(1);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(thrown?.message).toBe('process.exit(1) called');
+      const errorArg = consoleErrorSpy.mock.calls[0]?.[0] as string;
+      const payload = JSON.parse(errorArg);
+      expect(payload.error.type).toBe('Error');
+      expect(payload.error.code).toBe(1);
+      expect(payload.error.message).toContain(
+        'Please set an Auth method in your',
+      );
     });
 
-    it('emits error result and exits when enforced auth mismatches current auth', async () => {
+    it('prints JSON error when enforced auth mismatches current auth and exits with code 1', async () => {
       mockSettings.merged.security!.auth!.enforcedType = AuthType.QWEN_OAUTH;
       process.env['OPENAI_API_KEY'] = 'fake-key';
 
@@ -303,6 +278,7 @@ describe('validateNonInterActiveAuth', () => {
           .mockReturnValue({ authType: undefined }),
       } as unknown as Config;
 
+      let thrown: Error | undefined;
       try {
         await validateNonInteractiveAuth(
           undefined,
@@ -310,27 +286,23 @@ describe('validateNonInterActiveAuth', () => {
           nonInteractiveConfig,
           mockSettings,
         );
-        expect.fail('Should have exited');
       } catch (e) {
-        expect((e as Error).message).toContain('process.exit(1) called');
+        thrown = e as Error;
       }
 
-      expect(emitResultMock).toHaveBeenCalledWith({
-        isError: true,
-        errorMessage: expect.stringContaining(
+      expect(thrown?.message).toBe('process.exit(1) called');
+      {
+        const errorArg = consoleErrorSpy.mock.calls[0]?.[0] as string;
+        const payload = JSON.parse(errorArg);
+        expect(payload.error.type).toBe('Error');
+        expect(payload.error.code).toBe(1);
+        expect(payload.error.message).toContain(
           'The configured auth type is qwen-oauth, but the current auth type is openai.',
-        ),
-        durationMs: 0,
-        apiDurationMs: 0,
-        numTurns: 0,
-        usage: undefined,
-      });
-      expect(runExitCleanupMock).toHaveBeenCalled();
-      expect(processExitSpy).toHaveBeenCalledWith(1);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+        );
+      }
     });
 
-    it('emits error result and exits when validateAuthMethod fails', async () => {
+    it('prints JSON error when validateAuthMethod fails and exits with code 1', async () => {
       vi.spyOn(auth, 'validateAuthMethod').mockReturnValue('Auth error!');
       process.env['OPENAI_API_KEY'] = 'fake-key';
 
@@ -342,6 +314,7 @@ describe('validateNonInterActiveAuth', () => {
           .mockReturnValue({ authType: undefined }),
       } as unknown as Config;
 
+      let thrown: Error | undefined;
       try {
         await validateNonInteractiveAuth(
           AuthType.USE_OPENAI,
@@ -349,159 +322,18 @@ describe('validateNonInterActiveAuth', () => {
           nonInteractiveConfig,
           mockSettings,
         );
-        expect.fail('Should have exited');
       } catch (e) {
-        expect((e as Error).message).toContain('process.exit(1) called');
+        thrown = e as Error;
       }
 
-      expect(emitResultMock).toHaveBeenCalledWith({
-        isError: true,
-        errorMessage: 'Auth error!',
-        durationMs: 0,
-        apiDurationMs: 0,
-        numTurns: 0,
-        usage: undefined,
-      });
-      expect(runExitCleanupMock).toHaveBeenCalled();
-      expect(processExitSpy).toHaveBeenCalledWith(1);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('STREAM_JSON output mode', () => {
-    let emitResultMock: ReturnType<typeof vi.fn>;
-    let runExitCleanupMock: ReturnType<typeof vi.fn>;
-
-    beforeEach(() => {
-      emitResultMock = vi.fn();
-      runExitCleanupMock = vi.fn().mockResolvedValue(undefined);
-      vi.spyOn(
-        StreamJsonOutputAdapterModule,
-        'StreamJsonOutputAdapter',
-      ).mockImplementation(
-        () =>
-          ({
-            emitResult: emitResultMock,
-          }) as unknown as StreamJsonOutputAdapterModule.StreamJsonOutputAdapter,
-      );
-      vi.spyOn(cleanupModule, 'runExitCleanup').mockImplementation(
-        runExitCleanupMock,
-      );
-    });
-
-    it('emits error result and exits when no auth is configured', async () => {
-      const nonInteractiveConfig = {
-        refreshAuth: refreshAuthMock,
-        getOutputFormat: vi.fn().mockReturnValue(OutputFormat.STREAM_JSON),
-        getIncludePartialMessages: vi.fn().mockReturnValue(false),
-        getContentGeneratorConfig: vi
-          .fn()
-          .mockReturnValue({ authType: undefined }),
-      } as unknown as Config;
-
-      try {
-        await validateNonInteractiveAuth(
-          undefined,
-          undefined,
-          nonInteractiveConfig,
-          mockSettings,
-        );
-        expect.fail('Should have exited');
-      } catch (e) {
-        expect((e as Error).message).toContain('process.exit(1) called');
+      expect(thrown?.message).toBe('process.exit(1) called');
+      {
+        const errorArg = consoleErrorSpy.mock.calls[0]?.[0] as string;
+        const payload = JSON.parse(errorArg);
+        expect(payload.error.type).toBe('Error');
+        expect(payload.error.code).toBe(1);
+        expect(payload.error.message).toBe('Auth error!');
       }
-
-      expect(emitResultMock).toHaveBeenCalledWith({
-        isError: true,
-        errorMessage: expect.stringContaining(
-          'Please set an Auth method in your',
-        ),
-        durationMs: 0,
-        apiDurationMs: 0,
-        numTurns: 0,
-        usage: undefined,
-      });
-      expect(runExitCleanupMock).toHaveBeenCalled();
-      expect(processExitSpy).toHaveBeenCalledWith(1);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-    });
-
-    it('emits error result and exits when enforced auth mismatches current auth', async () => {
-      mockSettings.merged.security!.auth!.enforcedType = AuthType.QWEN_OAUTH;
-      process.env['OPENAI_API_KEY'] = 'fake-key';
-
-      const nonInteractiveConfig = {
-        refreshAuth: refreshAuthMock,
-        getOutputFormat: vi.fn().mockReturnValue(OutputFormat.STREAM_JSON),
-        getIncludePartialMessages: vi.fn().mockReturnValue(false),
-        getContentGeneratorConfig: vi
-          .fn()
-          .mockReturnValue({ authType: undefined }),
-      } as unknown as Config;
-
-      try {
-        await validateNonInteractiveAuth(
-          undefined,
-          undefined,
-          nonInteractiveConfig,
-          mockSettings,
-        );
-        expect.fail('Should have exited');
-      } catch (e) {
-        expect((e as Error).message).toContain('process.exit(1) called');
-      }
-
-      expect(emitResultMock).toHaveBeenCalledWith({
-        isError: true,
-        errorMessage: expect.stringContaining(
-          'The configured auth type is qwen-oauth, but the current auth type is openai.',
-        ),
-        durationMs: 0,
-        apiDurationMs: 0,
-        numTurns: 0,
-        usage: undefined,
-      });
-      expect(runExitCleanupMock).toHaveBeenCalled();
-      expect(processExitSpy).toHaveBeenCalledWith(1);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-    });
-
-    it('emits error result and exits when validateAuthMethod fails', async () => {
-      vi.spyOn(auth, 'validateAuthMethod').mockReturnValue('Auth error!');
-      process.env['OPENAI_API_KEY'] = 'fake-key';
-
-      const nonInteractiveConfig = {
-        refreshAuth: refreshAuthMock,
-        getOutputFormat: vi.fn().mockReturnValue(OutputFormat.STREAM_JSON),
-        getIncludePartialMessages: vi.fn().mockReturnValue(false),
-        getContentGeneratorConfig: vi
-          .fn()
-          .mockReturnValue({ authType: undefined }),
-      } as unknown as Config;
-
-      try {
-        await validateNonInteractiveAuth(
-          AuthType.USE_OPENAI,
-          undefined,
-          nonInteractiveConfig,
-          mockSettings,
-        );
-        expect.fail('Should have exited');
-      } catch (e) {
-        expect((e as Error).message).toContain('process.exit(1) called');
-      }
-
-      expect(emitResultMock).toHaveBeenCalledWith({
-        isError: true,
-        errorMessage: 'Auth error!',
-        durationMs: 0,
-        apiDurationMs: 0,
-        numTurns: 0,
-        usage: undefined,
-      });
-      expect(runExitCleanupMock).toHaveBeenCalled();
-      expect(processExitSpy).toHaveBeenCalledWith(1);
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
     });
   });
 });

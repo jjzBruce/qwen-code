@@ -6,13 +6,10 @@
 
 import type { SlashCommand } from './types.js';
 import { CommandKind } from './types.js';
-import { t } from '../../i18n/index.js';
 
 export const vimCommand: SlashCommand = {
   name: 'vim',
-  get description() {
-    return t('toggle vim mode on/off');
-  },
+  description: 'toggle vim mode on/off',
   kind: CommandKind.BUILT_IN,
   action: async (context, _args) => {
     const newVimState = await context.ui.toggleVimEnabled();

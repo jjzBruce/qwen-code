@@ -8,7 +8,6 @@ import type React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../semantic-colors.js';
 import { type Config } from '@qwen-code/qwen-code-core';
-import { t } from '../../i18n/index.js';
 
 interface TipsProps {
   config: Config;
@@ -18,12 +17,12 @@ export const Tips: React.FC<TipsProps> = ({ config }) => {
   const geminiMdFileCount = config.getGeminiMdFileCount();
   return (
     <Box flexDirection="column">
-      <Text color={theme.text.primary}>{t('Tips for getting started:')}</Text>
+      <Text color={theme.text.primary}>Tips for getting started:</Text>
       <Text color={theme.text.primary}>
-        {t('1. Ask questions, edit files, or run commands.')}
+        1. Ask questions, edit files, or run commands.
       </Text>
       <Text color={theme.text.primary}>
-        {t('2. Be specific for the best results.')}
+        2. Be specific for the best results.
       </Text>
       {geminiMdFileCount === 0 && (
         <Text color={theme.text.primary}>
@@ -31,7 +30,7 @@ export const Tips: React.FC<TipsProps> = ({ config }) => {
           <Text bold color={theme.text.accent}>
             QWEN.md
           </Text>{' '}
-          {t('files to customize your interactions with Qwen Code.')}
+          files to customize your interactions with Qwen Code.
         </Text>
       )}
       <Text color={theme.text.primary}>
@@ -39,7 +38,7 @@ export const Tips: React.FC<TipsProps> = ({ config }) => {
         <Text bold color={theme.text.accent}>
           /help
         </Text>{' '}
-        {t('for more information.')}
+        for more information.
       </Text>
     </Box>
   );

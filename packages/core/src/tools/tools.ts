@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { FunctionDeclaration, Part, PartListUnion } from '@google/genai';
+import type { FunctionDeclaration, PartListUnion } from '@google/genai';
 import { ToolErrorType } from './tool-error.js';
 import type { DiffUpdateResult } from '../ide/ide-client.js';
 import type { ShellExecutionConfig } from '../services/shellExecutionService.js';
@@ -461,7 +461,6 @@ export interface TaskResultDisplay {
     args?: Record<string, unknown>;
     result?: string;
     resultDisplay?: string;
-    responseParts?: Part[];
     description?: string;
   }>;
 }

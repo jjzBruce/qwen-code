@@ -8,14 +8,26 @@ import type React from 'react';
 import { useState } from 'react';
 import { AuthType } from '@qwen-code/qwen-code-core';
 import { Box, Text } from 'ink';
-import { SettingScope } from '../../config/settings.js';
+import { validateAuthMethod } from '../../config/auth.js';
+import { type LoadedSettings, SettingScope } from '../../config/settings.js';
 import { Colors } from '../colors.js';
 import { useKeypress } from '../hooks/useKeypress.js';
+import { OpenAIKeyPrompt } from '../components/OpenAIKeyPrompt.js';
 import { RadioButtonSelect } from '../components/shared/RadioButtonSelect.js';
-import { useUIState } from '../contexts/UIStateContext.js';
-import { useUIActions } from '../contexts/UIActionsContext.js';
-import { useSettings } from '../contexts/SettingsContext.js';
-import { t } from '../../i18n/index.js';
+
+interface AuthDialogProps {
+  onSelect: (
+    authMethod: AuthType | undefined,
+    scope: SettingScope,
+    credentials?: {
+      apiKey?: string;
+      baseUrl?: string;
+      model?: string;
+    },
+  ) => void;
+  settings: LoadedSettings;
+  initialErrorMessage?: string | null;
+}
 
 function parseDefaultAuthType(
   defaultAuthType: string | undefined,
@@ -29,41 +41,31 @@ function parseDefaultAuthType(
   return null;
 }
 
-export function AuthDialog(): React.JSX.Element {
-  const { pendingAuthType, authError } = useUIState();
-  const { handleAuthSelect: onAuthSelect } = useUIActions();
-  const settings = useSettings();
-
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-
+export function AuthDialog({
+  onSelect,
+  settings,
+  initialErrorMessage,
+}: AuthDialogProps): React.JSX.Element {
+  const [errorMessage, setErrorMessage] = useState<string | null>(
+    initialErrorMessage || null,
+  );
+  const [showOpenAIKeyPrompt, setShowOpenAIKeyPrompt] = useState(false);
   const items = [
     {
       key: AuthType.QWEN_OAUTH,
-      label: t('Qwen OAuth'),
+      label: 'Qwen OAuth',
       value: AuthType.QWEN_OAUTH,
     },
-    {
-      key: AuthType.USE_OPENAI,
-      label: t('OpenAI'),
-      value: AuthType.USE_OPENAI,
-    },
+    { key: AuthType.USE_OPENAI, label: 'OpenAI', value: AuthType.USE_OPENAI },
   ];
 
   const initialAuthIndex = Math.max(
     0,
     items.findIndex((item) => {
-      // Priority 1: pendingAuthType
-      if (pendingAuthType) {
-        return item.value === pendingAuthType;
-      }
-
-      // Priority 2: settings.merged.security?.auth?.selectedType
       if (settings.merged.security?.auth?.selectedType) {
         return item.value === settings.merged.security?.auth?.selectedType;
       }
 
-      // Priority 3: QWEN_DEFAULT_AUTH_TYPE env var
       const defaultAuthType = parseDefaultAuthType(
         process.env['QWEN_DEFAULT_AUTH_TYPE'],
       );
@@ -71,29 +73,52 @@ export function AuthDialog(): React.JSX.Element {
         return item.value === defaultAuthType;
       }
 
-      // Priority 4: default to QWEN_OAUTH
       return item.value === AuthType.QWEN_OAUTH;
     }),
   );
 
-  const hasApiKey = Boolean(settings.merged.security?.auth?.apiKey);
-  const currentSelectedAuthType =
-    selectedIndex !== null
-      ? items[selectedIndex]?.value
-      : items[initialAuthIndex]?.value;
-
-  const handleAuthSelect = async (authMethod: AuthType) => {
-    setErrorMessage(null);
-    await onAuthSelect(authMethod, SettingScope.User);
+  const handleAuthSelect = (authMethod: AuthType) => {
+    const error = validateAuthMethod(authMethod);
+    if (error) {
+      if (
+        authMethod === AuthType.USE_OPENAI &&
+        !process.env['OPENAI_API_KEY']
+      ) {
+        setShowOpenAIKeyPrompt(true);
+        setErrorMessage(null);
+      } else {
+        setErrorMessage(error);
+      }
+    } else {
+      setErrorMessage(null);
+      onSelect(authMethod, SettingScope.User);
+    }
   };
 
-  const handleHighlight = (authMethod: AuthType) => {
-    const index = items.findIndex((item) => item.value === authMethod);
-    setSelectedIndex(index);
+  const handleOpenAIKeySubmit = (
+    apiKey: string,
+    baseUrl: string,
+    model: string,
+  ) => {
+    setShowOpenAIKeyPrompt(false);
+    onSelect(AuthType.USE_OPENAI, SettingScope.User, {
+      apiKey,
+      baseUrl,
+      model,
+    });
+  };
+
+  const handleOpenAIKeyCancel = () => {
+    setShowOpenAIKeyPrompt(false);
+    setErrorMessage('OpenAI API key is required to use OpenAI authentication.');
   };
 
   useKeypress(
     (key) => {
+      if (showOpenAIKeyPrompt) {
+        return;
+      }
+
       if (key.name === 'escape') {
         // Prevent exit if there is an error message.
         // This means they user is not authenticated yet.
@@ -103,17 +128,24 @@ export function AuthDialog(): React.JSX.Element {
         if (settings.merged.security?.auth?.selectedType === undefined) {
           // Prevent exiting if no auth method is set
           setErrorMessage(
-            t(
-              'You must select an auth method to proceed. Press Ctrl+C again to exit.',
-            ),
+            'You must select an auth method to proceed. Press Ctrl+C again to exit.',
           );
           return;
         }
-        onAuthSelect(undefined, SettingScope.User);
+        onSelect(undefined, SettingScope.User);
       }
     },
     { isActive: true },
   );
+
+  if (showOpenAIKeyPrompt) {
+    return (
+      <OpenAIKeyPrompt
+        onSubmit={handleOpenAIKeySubmit}
+        onCancel={handleOpenAIKeyCancel}
+      />
+    );
+  }
 
   return (
     <Box
@@ -123,37 +155,27 @@ export function AuthDialog(): React.JSX.Element {
       padding={1}
       width="100%"
     >
-      <Text bold>{t('Get started')}</Text>
+      <Text bold>Get started</Text>
       <Box marginTop={1}>
-        <Text>{t('How would you like to authenticate for this project?')}</Text>
+        <Text>How would you like to authenticate for this project?</Text>
       </Box>
       <Box marginTop={1}>
         <RadioButtonSelect
           items={items}
           initialIndex={initialAuthIndex}
           onSelect={handleAuthSelect}
-          onHighlight={handleHighlight}
         />
       </Box>
-      {(authError || errorMessage) && (
+      {errorMessage && (
         <Box marginTop={1}>
-          <Text color={Colors.AccentRed}>{authError || errorMessage}</Text>
+          <Text color={Colors.AccentRed}>{errorMessage}</Text>
         </Box>
       )}
       <Box marginTop={1}>
-        <Text color={Colors.AccentPurple}>{t('(Use Enter to Set Auth)')}</Text>
+        <Text color={Colors.AccentPurple}>(Use Enter to Set Auth)</Text>
       </Box>
-      {hasApiKey && currentSelectedAuthType === AuthType.QWEN_OAUTH && (
-        <Box marginTop={1}>
-          <Text color={Colors.Gray}>
-            {t(
-              'Note: Your existing API key in settings.json will not be cleared when using Qwen OAuth. You can switch back to OpenAI authentication later if needed.',
-            )}
-          </Text>
-        </Box>
-      )}
       <Box marginTop={1}>
-        <Text>{t('Terms of Services and Privacy Notice for Qwen Code')}</Text>
+        <Text>Terms of Services and Privacy Notice for Qwen Code</Text>
       </Box>
       <Box marginTop={1}>
         <Text color={Colors.AccentBlue}>

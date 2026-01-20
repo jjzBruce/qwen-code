@@ -7,6 +7,7 @@
 import * as fsPromises from 'node:fs/promises';
 import React from 'react';
 import { Text } from 'ink';
+import { theme } from '../semantic-colors.js';
 import type {
   CommandContext,
   SlashCommand,
@@ -19,7 +20,6 @@ import path from 'node:path';
 import type { HistoryItemWithoutId } from '../types.js';
 import { MessageType } from '../types.js';
 import type { Content } from '@google/genai';
-import { t } from '../../i18n/index.js';
 
 interface ChatDetail {
   name: string;
@@ -67,9 +67,7 @@ const getSavedChatTags = async (
 
 const listCommand: SlashCommand = {
   name: 'list',
-  get description() {
-    return t('List saved conversation checkpoints');
-  },
+  description: 'List saved conversation checkpoints',
   kind: CommandKind.BUILT_IN,
   action: async (context): Promise<MessageActionReturn> => {
     const chatDetails = await getSavedChatTags(context, false);
@@ -77,7 +75,7 @@ const listCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'info',
-        content: t('No saved conversation checkpoints found.'),
+        content: 'No saved conversation checkpoints found.',
       };
     }
 
@@ -85,7 +83,7 @@ const listCommand: SlashCommand = {
       ...chatDetails.map((chat) => chat.name.length),
     );
 
-    let message = t('List of saved conversations:') + '\n\n';
+    let message = 'List of saved conversations:\n\n';
     for (const chat of chatDetails) {
       const paddedName = chat.name.padEnd(maxNameLength, ' ');
       const isoString = chat.mtime.toISOString();
@@ -93,7 +91,7 @@ const listCommand: SlashCommand = {
       const formattedDate = match ? `${match[1]} ${match[2]}` : 'Invalid Date';
       message += `  - ${paddedName}  (saved on ${formattedDate})\n`;
     }
-    message += `\n${t('Note: Newest last, oldest first')}`;
+    message += `\nNote: Newest last, oldest first`;
     return {
       type: 'message',
       messageType: 'info',
@@ -104,11 +102,8 @@ const listCommand: SlashCommand = {
 
 const saveCommand: SlashCommand = {
   name: 'save',
-  get description() {
-    return t(
-      'Save the current conversation as a checkpoint. Usage: /chat save <tag>',
-    );
-  },
+  description:
+    'Save the current conversation as a checkpoint. Usage: /chat save <tag>',
   kind: CommandKind.BUILT_IN,
   action: async (context, args): Promise<SlashCommandActionReturn | void> => {
     const tag = args.trim();
@@ -116,7 +111,7 @@ const saveCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Missing tag. Usage: /chat save <tag>'),
+        content: 'Missing tag. Usage: /chat save <tag>',
       };
     }
 
@@ -131,12 +126,9 @@ const saveCommand: SlashCommand = {
           prompt: React.createElement(
             Text,
             null,
-            t(
-              'A checkpoint with the tag {{tag}} already exists. Do you want to overwrite it?',
-              {
-                tag,
-              },
-            ),
+            'A checkpoint with the tag ',
+            React.createElement(Text, { color: theme.text.accent }, tag),
+            ' already exists. Do you want to overwrite it?',
           ),
           originalInvocation: {
             raw: context.invocation?.raw || `/chat save ${tag}`,
@@ -150,7 +142,7 @@ const saveCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('No chat client available to save conversation.'),
+        content: 'No chat client available to save conversation.',
       };
     }
 
@@ -160,15 +152,13 @@ const saveCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'info',
-        content: t('Conversation checkpoint saved with tag: {{tag}}.', {
-          tag: decodeTagName(tag),
-        }),
+        content: `Conversation checkpoint saved with tag: ${decodeTagName(tag)}.`,
       };
     } else {
       return {
         type: 'message',
         messageType: 'info',
-        content: t('No conversation found to save.'),
+        content: 'No conversation found to save.',
       };
     }
   },
@@ -177,11 +167,8 @@ const saveCommand: SlashCommand = {
 const resumeCommand: SlashCommand = {
   name: 'resume',
   altNames: ['load'],
-  get description() {
-    return t(
-      'Resume a conversation from a checkpoint. Usage: /chat resume <tag>',
-    );
-  },
+  description:
+    'Resume a conversation from a checkpoint. Usage: /chat resume <tag>',
   kind: CommandKind.BUILT_IN,
   action: async (context, args) => {
     const tag = args.trim();
@@ -189,7 +176,7 @@ const resumeCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Missing tag. Usage: /chat resume <tag>'),
+        content: 'Missing tag. Usage: /chat resume <tag>',
       };
     }
 
@@ -201,9 +188,7 @@ const resumeCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'info',
-        content: t('No saved checkpoint found with tag: {{tag}}.', {
-          tag: decodeTagName(tag),
-        }),
+        content: `No saved checkpoint found with tag: ${decodeTagName(tag)}.`,
       };
     }
 
@@ -252,9 +237,7 @@ const resumeCommand: SlashCommand = {
 
 const deleteCommand: SlashCommand = {
   name: 'delete',
-  get description() {
-    return t('Delete a conversation checkpoint. Usage: /chat delete <tag>');
-  },
+  description: 'Delete a conversation checkpoint. Usage: /chat delete <tag>',
   kind: CommandKind.BUILT_IN,
   action: async (context, args): Promise<MessageActionReturn> => {
     const tag = args.trim();
@@ -262,7 +245,7 @@ const deleteCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Missing tag. Usage: /chat delete <tag>'),
+        content: 'Missing tag. Usage: /chat delete <tag>',
       };
     }
 
@@ -274,17 +257,13 @@ const deleteCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'info',
-        content: t("Conversation checkpoint '{{tag}}' has been deleted.", {
-          tag: decodeTagName(tag),
-        }),
+        content: `Conversation checkpoint '${decodeTagName(tag)}' has been deleted.`,
       };
     } else {
       return {
         type: 'message',
         messageType: 'error',
-        content: t("Error: No checkpoint found with tag '{{tag}}'.", {
-          tag: decodeTagName(tag),
-        }),
+        content: `Error: No checkpoint found with tag '${decodeTagName(tag)}'.`,
       };
     }
   },
@@ -330,11 +309,8 @@ export function serializeHistoryToMarkdown(history: Content[]): string {
 
 const shareCommand: SlashCommand = {
   name: 'share',
-  get description() {
-    return t(
-      'Share the current conversation to a markdown or json file. Usage: /chat share <file>',
-    );
-  },
+  description:
+    'Share the current conversation to a markdown or json file. Usage: /chat share <file>',
   kind: CommandKind.BUILT_IN,
   action: async (context, args): Promise<MessageActionReturn> => {
     let filePathArg = args.trim();
@@ -348,7 +324,7 @@ const shareCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Invalid file format. Only .md and .json are supported.'),
+        content: 'Invalid file format. Only .md and .json are supported.',
       };
     }
 
@@ -357,7 +333,7 @@ const shareCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('No chat client available to share conversation.'),
+        content: 'No chat client available to share conversation.',
       };
     }
 
@@ -370,7 +346,7 @@ const shareCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'info',
-        content: t('No conversation found to share.'),
+        content: 'No conversation found to share.',
       };
     }
 
@@ -386,18 +362,14 @@ const shareCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'info',
-        content: t('Conversation shared to {{filePath}}', {
-          filePath,
-        }),
+        content: `Conversation shared to ${filePath}`,
       };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Error sharing conversation: {{error}}', {
-          error: errorMessage,
-        }),
+        content: `Error sharing conversation: ${errorMessage}`,
       };
     }
   },
@@ -405,9 +377,7 @@ const shareCommand: SlashCommand = {
 
 export const chatCommand: SlashCommand = {
   name: 'chat',
-  get description() {
-    return t('Manage conversation history.');
-  },
+  description: 'Manage conversation history.',
   kind: CommandKind.BUILT_IN,
   subCommands: [
     listCommand,

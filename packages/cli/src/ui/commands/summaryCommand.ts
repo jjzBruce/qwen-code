@@ -13,15 +13,11 @@ import {
 } from './types.js';
 import { getProjectSummaryPrompt } from '@qwen-code/qwen-code-core';
 import type { HistoryItemSummary } from '../types.js';
-import { t } from '../../i18n/index.js';
 
 export const summaryCommand: SlashCommand = {
   name: 'summary',
-  get description() {
-    return t(
-      'Generate a project summary and save it to .qwen/PROJECT_SUMMARY.md',
-    );
-  },
+  description:
+    'Generate a project summary and save it to .qwen/PROJECT_SUMMARY.md',
   kind: CommandKind.BUILT_IN,
   action: async (context): Promise<SlashCommandActionReturn> => {
     const { config } = context.services;
@@ -30,7 +26,7 @@ export const summaryCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Config not loaded.'),
+        content: 'Config not loaded.',
       };
     }
 
@@ -39,7 +35,7 @@ export const summaryCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('No chat client available to generate summary.'),
+        content: 'No chat client available to generate summary.',
       };
     }
 
@@ -48,18 +44,15 @@ export const summaryCommand: SlashCommand = {
       ui.addItem(
         {
           type: 'error' as const,
-          text: t(
-            'Already generating summary, wait for previous request to complete',
-          ),
+          text: 'Already generating summary, wait for previous request to complete',
         },
         Date.now(),
       );
       return {
         type: 'message',
         messageType: 'error',
-        content: t(
+        content:
           'Already generating summary, wait for previous request to complete',
-        ),
       };
     }
 
@@ -72,7 +65,7 @@ export const summaryCommand: SlashCommand = {
         return {
           type: 'message',
           messageType: 'info',
-          content: t('No conversation found to summarize.'),
+          content: 'No conversation found to summarize.',
         };
       }
 
@@ -178,12 +171,9 @@ export const summaryCommand: SlashCommand = {
       ui.addItem(
         {
           type: 'error' as const,
-          text: `❌ ${t(
-            'Failed to generate project context summary: {{error}}',
-            {
-              error: error instanceof Error ? error.message : String(error),
-            },
-          )}`,
+          text: `❌ Failed to generate project context summary: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         },
         Date.now(),
       );
@@ -191,9 +181,9 @@ export const summaryCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Failed to generate project context summary: {{error}}', {
-          error: error instanceof Error ? error.message : String(error),
-        }),
+        content: `Failed to generate project context summary: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       };
     }
   },

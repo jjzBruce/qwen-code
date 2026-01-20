@@ -9,7 +9,6 @@ import { Box, Text } from 'ink';
 import { theme } from '../../semantic-colors.js';
 import { type ToolDefinition } from '../../types.js';
 import { MarkdownDisplay } from '../../utils/MarkdownDisplay.js';
-import { t } from '../../../i18n/index.js';
 
 interface ToolsListProps {
   tools: readonly ToolDefinition[];
@@ -24,7 +23,7 @@ export const ToolsList: React.FC<ToolsListProps> = ({
 }) => (
   <Box flexDirection="column" marginBottom={1}>
     <Text bold color={theme.text.primary}>
-      {t('Available Qwen Code CLI tools:')}
+      Available Qwen Code CLI tools:
     </Text>
     <Box height={1} />
     {tools.length > 0 ? (
@@ -47,7 +46,7 @@ export const ToolsList: React.FC<ToolsListProps> = ({
         </Box>
       ))
     ) : (
-      <Text color={theme.text.primary}> {t('No tools available')}</Text>
+      <Text color={theme.text.primary}> No tools available</Text>
     )}
   </Box>
 );

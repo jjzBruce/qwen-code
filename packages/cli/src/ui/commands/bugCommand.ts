@@ -16,13 +16,10 @@ import {
   getSystemInfoFields,
   getFieldValue,
 } from '../../utils/systemInfoFields.js';
-import { t } from '../../i18n/index.js';
 
 export const bugCommand: SlashCommand = {
   name: 'bug',
-  get description() {
-    return t('submit a bug report');
-  },
+  description: 'submit a bug report',
   kind: CommandKind.BUILT_IN,
   action: async (context: CommandContext, args?: string): Promise<void> => {
     const bugDescription = (args || '').trim();

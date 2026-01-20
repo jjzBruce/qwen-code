@@ -6,7 +6,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { isCommandAvailable } from '../utils/shell-utils.js';
+import { spawnAsync } from '../utils/shell-utils.js';
 import type { SimpleGit } from 'simple-git';
 import { simpleGit, CheckRepoActions } from 'simple-git';
 import type { Storage } from '../config/storage.js';
@@ -26,7 +26,7 @@ export class GitService {
   }
 
   async initialize(): Promise<void> {
-    const { available: gitAvailable } = isCommandAvailable('git');
+    const gitAvailable = await this.verifyGitAvailability();
     if (!gitAvailable) {
       throw new Error(
         'Checkpointing is enabled, but Git is not installed. Please install Git or disable checkpointing to continue.',
@@ -38,6 +38,15 @@ export class GitService {
       throw new Error(
         `Failed to initialize checkpointing: ${error instanceof Error ? error.message : 'Unknown error'}. Please check that Git is working properly or disable checkpointing.`,
       );
+    }
+  }
+
+  async verifyGitAvailability(): Promise<boolean> {
+    try {
+      await spawnAsync('git', ['--version']);
+      return true;
+    } catch (_error) {
+      return false;
     }
   }
 

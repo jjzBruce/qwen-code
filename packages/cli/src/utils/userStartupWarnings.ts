@@ -67,15 +67,11 @@ const ripgrepAvailabilityCheck: WarningCheck = {
       return null;
     }
 
-    try {
-      const isAvailable = await canUseRipgrep(options.useBuiltinRipgrep);
-      if (!isAvailable) {
-        return 'Ripgrep not available: Please install ripgrep globally to enable faster file content search. Falling back to built-in grep.';
-      }
-      return null;
-    } catch (error) {
-      return `Ripgrep not available: ${error instanceof Error ? error.message : 'Unknown error'}. Falling back to built-in grep.`;
+    const isAvailable = await canUseRipgrep(options.useBuiltinRipgrep);
+    if (!isAvailable) {
+      return 'Ripgrep not available: Please install ripgrep globally to enable faster file content search. Falling back to built-in grep.';
     }
+    return null;
   },
 };
 

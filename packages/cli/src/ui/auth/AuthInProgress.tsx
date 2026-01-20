@@ -10,7 +10,6 @@ import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { theme } from '../semantic-colors.js';
 import { useKeypress } from '../hooks/useKeypress.js';
-import { t } from '../../i18n/index.js';
 
 interface AuthInProgressProps {
   onTimeout: () => void;
@@ -49,13 +48,13 @@ export function AuthInProgress({
     >
       {timedOut ? (
         <Text color={theme.status.error}>
-          {t('Authentication timed out. Please try again.')}
+          Authentication timed out. Please try again.
         </Text>
       ) : (
         <Box>
           <Text>
-            <Spinner type="dots" />{' '}
-            {t('Waiting for auth... (Press ESC or CTRL+C to cancel)')}
+            <Spinner type="dots" /> Waiting for auth... (Press ESC or CTRL+C to
+            cancel)
           </Text>
         </Box>
       )}

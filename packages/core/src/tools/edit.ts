@@ -22,7 +22,7 @@ import type { Config } from '../config/config.js';
 import { ApprovalMode } from '../config/config.js';
 import { DEFAULT_DIFF_OPTIONS, getDiffStat } from './diffOptions.js';
 import { ReadFileTool } from './read-file.js';
-import { ToolNames, ToolDisplayNames } from './tool-names.js';
+import { ToolNames } from './tool-names.js';
 import { logFileOperation } from '../telemetry/loggers.js';
 import { FileOperationEvent } from '../telemetry/types.js';
 import { FileOperation } from '../telemetry/metrics.js';
@@ -34,12 +34,6 @@ import type {
 } from './modifiable-tool.js';
 import { IdeClient } from '../ide/ide-client.js';
 import { safeLiteralReplace } from '../utils/textUtils.js';
-import {
-  countOccurrences,
-  extractEditSnippet,
-  maybeAugmentOldStringForDeletion,
-  normalizeEditStrings,
-} from '../utils/editHelper.js';
 
 export function applyReplacement(
   currentContent: string | null,
@@ -83,9 +77,10 @@ export interface EditToolParams {
   new_string: string;
 
   /**
-   * Replace every occurrence of old_string instead of requiring a unique match.
+   * Number of replacements expected. Defaults to 1 if not specified.
+   * Use when you want to replace multiple occurrences.
    */
-  replace_all?: boolean;
+  expected_replacements?: number;
 
   /**
    * Whether the edit was modified manually by the user.
@@ -123,12 +118,12 @@ class EditToolInvocation implements ToolInvocation<EditToolParams, ToolResult> {
    * @throws File system errors if reading the file fails unexpectedly (e.g., permissions)
    */
   private async calculateEdit(params: EditToolParams): Promise<CalculatedEdit> {
-    const replaceAll = params.replace_all ?? false;
+    const expectedReplacements = params.expected_replacements ?? 1;
     let currentContent: string | null = null;
     let fileExists = false;
     let isNewFile = false;
-    let finalNewString = params.new_string;
-    let finalOldString = params.old_string;
+    const finalNewString = params.new_string;
+    const finalOldString = params.old_string;
     let occurrences = 0;
     let error:
       | { display: string; raw: string; type: ToolErrorType }
@@ -149,15 +144,7 @@ class EditToolInvocation implements ToolInvocation<EditToolParams, ToolResult> {
       fileExists = false;
     }
 
-    const normalizedStrings = normalizeEditStrings(
-      currentContent,
-      finalOldString,
-      finalNewString,
-    );
-    finalOldString = normalizedStrings.oldString;
-    finalNewString = normalizedStrings.newString;
-
-    if (finalOldString === '' && !fileExists) {
+    if (params.old_string === '' && !fileExists) {
       // Creating a new file
       isNewFile = true;
     } else if (!fileExists) {
@@ -168,13 +155,7 @@ class EditToolInvocation implements ToolInvocation<EditToolParams, ToolResult> {
         type: ToolErrorType.FILE_NOT_FOUND,
       };
     } else if (currentContent !== null) {
-      finalOldString = maybeAugmentOldStringForDeletion(
-        currentContent,
-        finalOldString,
-        finalNewString,
-      );
-
-      occurrences = countOccurrences(currentContent, finalOldString);
+      occurrences = this.countOccurrences(currentContent, params.old_string);
       if (params.old_string === '') {
         // Error: Trying to create a file that already exists
         error = {
@@ -188,10 +169,13 @@ class EditToolInvocation implements ToolInvocation<EditToolParams, ToolResult> {
           raw: `Failed to edit, 0 occurrences found for old_string in ${params.file_path}. No edits made. The exact text in old_string was not found. Ensure you're not escaping content incorrectly and check whitespace, indentation, and context. Use ${ReadFileTool.Name} tool to verify.`,
           type: ToolErrorType.EDIT_NO_OCCURRENCE_FOUND,
         };
-      } else if (!replaceAll && occurrences > 1) {
+      } else if (occurrences !== expectedReplacements) {
+        const occurrenceTerm =
+          expectedReplacements === 1 ? 'occurrence' : 'occurrences';
+
         error = {
-          display: `Failed to edit because the text matches multiple locations. Provide more context or set replace_all to true.`,
-          raw: `Failed to edit. Found ${occurrences} occurrences for old_string in ${params.file_path} but replace_all was not enabled.`,
+          display: `Failed to edit, expected ${expectedReplacements} ${occurrenceTerm} but found ${occurrences}.`,
+          raw: `Failed to edit, Expected ${expectedReplacements} ${occurrenceTerm} but found ${occurrences} for old_string in file: ${params.file_path}`,
           type: ToolErrorType.EDIT_EXPECTED_OCCURRENCE_MISMATCH,
         };
       } else if (finalOldString === finalNewString) {
@@ -235,6 +219,22 @@ class EditToolInvocation implements ToolInvocation<EditToolParams, ToolResult> {
       error,
       isNewFile,
     };
+  }
+
+  /**
+   * Counts occurrences of a substring in a string
+   */
+  private countOccurrences(str: string, substr: string): number {
+    if (substr === '') {
+      return 0;
+    }
+    let count = 0;
+    let pos = str.indexOf(substr);
+    while (pos !== -1) {
+      count++;
+      pos = str.indexOf(substr, pos + substr.length); // Start search after the current match
+    }
+    return count;
   }
 
   /**
@@ -422,16 +422,12 @@ class EditToolInvocation implements ToolInvocation<EditToolParams, ToolResult> {
       const llmSuccessMessageParts = [
         editData.isNewFile
           ? `Created new file: ${this.params.file_path} with provided content.`
-          : `The file: ${this.params.file_path} has been updated.`,
+          : `Successfully modified file: ${this.params.file_path} (${editData.occurrences} replacements).`,
       ];
-
-      const snippetResult = extractEditSnippet(
-        editData.currentContent,
-        editData.newContent,
-      );
-      if (snippetResult) {
-        const snippetText = `Showing lines ${snippetResult.startLine}-${snippetResult.endLine} of ${snippetResult.totalLines} from the edited file:\n\n---\n\n${snippetResult.content}`;
-        llmSuccessMessageParts.push(snippetText);
+      if (this.params.modified_by_user) {
+        llmSuccessMessageParts.push(
+          `User modified the \`new_string\` content to be: ${this.params.new_string}.`,
+        );
       }
 
       return {
@@ -473,8 +469,8 @@ export class EditTool
   constructor(private readonly config: Config) {
     super(
       EditTool.Name,
-      ToolDisplayNames.EDIT,
-      `Replaces text within a file. By default, replaces a single occurrence. Set \`replace_all\` to true when you intend to modify every instance of \`old_string\`. This tool requires providing significant context around the change to ensure precise targeting. Always use the ${ReadFileTool.Name} tool to examine the file's current content before attempting a text replacement.
+      'Edit',
+      `Replaces text within a file. By default, replaces a single occurrence, but can replace multiple occurrences when \`expected_replacements\` is specified. This tool requires providing significant context around the change to ensure precise targeting. Always use the ${ReadFileTool.Name} tool to examine the file's current content before attempting a text replacement.
 
       The user has the ability to modify the \`new_string\` content. If modified, this will be stated in the response.
 
@@ -484,7 +480,7 @@ Expectation for required parameters:
 3. \`new_string\` MUST be the exact literal text to replace \`old_string\` with (also including all whitespace, indentation, newlines, and surrounding code etc.). Ensure the resulting code is correct and idiomatic.
 4. NEVER escape \`old_string\` or \`new_string\`, that would break the exact literal text requirement.
 **Important:** If ANY of the above are not satisfied, the tool will fail. CRITICAL for \`old_string\`: Must uniquely identify the single instance to change. Include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. If this string matches multiple locations, or does not match exactly, the tool will fail.
-**Multiple replacements:** Set \`replace_all\` to true when you want to replace every occurrence that matches \`old_string\`.`,
+**Multiple replacements:** Set \`expected_replacements\` to the number of occurrences you want to replace. The tool will replace ALL occurrences that match \`old_string\` exactly. Ensure the number of replacements matches your expectation.`,
       Kind.Edit,
       {
         properties: {
@@ -495,7 +491,7 @@ Expectation for required parameters:
           },
           old_string: {
             description:
-              'The exact literal text to replace, preferably unescaped. For single replacements (default), include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. If this string is not the exact literal text (i.e. you escaped it) or does not match exactly, the tool will fail.',
+              'The exact literal text to replace, preferably unescaped. For single replacements (default), include at least 3 lines of context BEFORE and AFTER the target text, matching whitespace and indentation precisely. For multiple replacements, specify expected_replacements parameter. If this string is not the exact literal text (i.e. you escaped it) or does not match exactly, the tool will fail.',
             type: 'string',
           },
           new_string: {
@@ -503,10 +499,11 @@ Expectation for required parameters:
               'The exact literal text to replace `old_string` with, preferably unescaped. Provide the EXACT text. Ensure the resulting code is correct and idiomatic.',
             type: 'string',
           },
-          replace_all: {
-            type: 'boolean',
+          expected_replacements: {
+            type: 'number',
             description:
-              'Replace all occurrences of old_string (default false).',
+              'Number of replacements expected. Defaults to 1 if not specified. Use when you want to replace multiple occurrences.',
+            minimum: 1,
           },
         },
         required: ['file_path', 'old_string', 'new_string'],

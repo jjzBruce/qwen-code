@@ -13,10 +13,8 @@ import {
   afterEach,
   afterAll,
 } from 'vitest';
-import * as os from 'node:os';
 import { QwenLogger, TEST_ONLY } from './qwen-logger.js';
 import type { Config } from '../../config/config.js';
-import { AuthType } from '../../core/contentGenerator.js';
 import {
   StartSessionEvent,
   EndSessionEvent,
@@ -24,7 +22,7 @@ import {
   KittySequenceOverflowEvent,
   IdeConnectionType,
 } from '../types.js';
-import type { RumEvent, RumPayload } from './event-types.js';
+import type { RumEvent } from './event-types.js';
 
 // Mock dependencies
 vi.mock('../../utils/user_id.js', () => ({
@@ -48,7 +46,6 @@ const makeFakeConfig = (overrides: Partial<Config> = {}): Config => {
     getCliVersion: () => '1.0.0',
     getProxy: () => undefined,
     getContentGeneratorConfig: () => ({ authType: 'test-auth' }),
-    getAuthType: () => AuthType.QWEN_OAUTH,
     getMcpServers: () => ({}),
     getModel: () => 'test-model',
     getEmbeddingModel: () => 'test-embedding',
@@ -102,24 +99,6 @@ describe('QwenLogger', () => {
       const logger1 = QwenLogger.getInstance(mockConfig);
       const logger2 = QwenLogger.getInstance(mockConfig);
       expect(logger1).toBe(logger2);
-    });
-  });
-
-  describe('createRumPayload', () => {
-    it('includes os metadata in payload', async () => {
-      const logger = QwenLogger.getInstance(mockConfig)!;
-      const payload = await (
-        logger as unknown as {
-          createRumPayload(): Promise<RumPayload>;
-        }
-      ).createRumPayload();
-
-      expect(payload.os).toEqual(
-        expect.objectContaining({
-          type: os.platform(),
-          version: os.release(),
-        }),
-      );
     });
   });
 
@@ -286,9 +265,9 @@ describe('QwenLogger', () => {
           event_type: 'action',
           type: 'ide',
           name: 'ide_connection',
-          properties: {
+          snapshots: JSON.stringify({
             connection_type: IdeConnectionType.SESSION,
-          },
+          }),
         }),
       );
     });
@@ -307,10 +286,8 @@ describe('QwenLogger', () => {
           type: 'overflow',
           name: 'kitty_sequence_overflow',
           subtype: 'kitty_sequence_overflow',
-          properties: {
-            sequence_length: 1024,
-          },
           snapshots: JSON.stringify({
+            sequence_length: 1024,
             truncated_sequence: 'truncated...',
           }),
         }),

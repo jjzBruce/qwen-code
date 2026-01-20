@@ -12,7 +12,6 @@ import {
   type RadioSelectItem,
 } from './shared/RadioButtonSelect.js';
 import { useKeypress } from '../hooks/useKeypress.js';
-import { t } from '../../i18n/index.js';
 
 interface WelcomeBackDialogProps {
   welcomeBackInfo: ProjectSummaryInfo;
@@ -37,12 +36,12 @@ export function WelcomeBackDialog({
   const options: Array<RadioSelectItem<'restart' | 'continue'>> = [
     {
       key: 'restart',
-      label: t('Start new chat session'),
+      label: 'Start new chat session',
       value: 'restart',
     },
     {
       key: 'continue',
-      label: t('Continue previous conversation'),
+      label: 'Continue previous conversation',
       value: 'continue',
     },
   ];
@@ -68,9 +67,7 @@ export function WelcomeBackDialog({
     >
       <Box flexDirection="column" marginBottom={1}>
         <Text color={Colors.AccentBlue} bold>
-          {t('👋 Welcome back! (Last updated: {{timeAgo}})', {
-            timeAgo: timeAgo || '',
-          })}
+          👋 Welcome back! (Last updated: {timeAgo})
         </Text>
       </Box>
 
@@ -78,7 +75,7 @@ export function WelcomeBackDialog({
       {goalContent && (
         <Box flexDirection="column" marginBottom={1}>
           <Text color={Colors.Foreground} bold>
-            {t('🎯 Overall Goal:')}
+            🎯 Overall Goal:
           </Text>
           <Box marginTop={1} paddingLeft={2}>
             <Text color={Colors.Gray}>{goalContent}</Text>
@@ -90,25 +87,19 @@ export function WelcomeBackDialog({
       {totalTasks > 0 && (
         <Box flexDirection="column" marginBottom={1}>
           <Text color={Colors.Foreground} bold>
-            📋 {t('Current Plan:')}
+            📋 Current Plan:
           </Text>
           <Box marginTop={1} paddingLeft={2}>
             <Text color={Colors.Gray}>
-              {t('Progress: {{done}}/{{total}} tasks completed', {
-                done: String(doneCount),
-                total: String(totalTasks),
-              })}
-              {inProgressCount > 0 &&
-                t(', {{inProgress}} in progress', {
-                  inProgress: String(inProgressCount),
-                })}
+              Progress: {doneCount}/{totalTasks} tasks completed
+              {inProgressCount > 0 && `, ${inProgressCount} in progress`}
             </Text>
           </Box>
 
           {pendingTasks.length > 0 && (
             <Box flexDirection="column" marginTop={1} paddingLeft={2}>
               <Text color={Colors.Foreground} bold>
-                {t('Pending Tasks:')}
+                Pending Tasks:
               </Text>
               {pendingTasks.map((task: string, index: number) => (
                 <Text key={index} color={Colors.Gray}>
@@ -122,8 +113,8 @@ export function WelcomeBackDialog({
 
       {/* Action Selection */}
       <Box flexDirection="column" marginTop={1}>
-        <Text bold>{t('What would you like to do?')}</Text>
-        <Text>{t('Choose how to proceed with your session:')}</Text>
+        <Text bold>What would you like to do?</Text>
+        <Text>Choose how to proceed with your session:</Text>
       </Box>
 
       <Box marginTop={1}>

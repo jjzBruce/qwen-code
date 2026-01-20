@@ -9,53 +9,6 @@ import { AuthDialog } from './AuthDialog.js';
 import { LoadedSettings, SettingScope } from '../../config/settings.js';
 import { AuthType } from '@qwen-code/qwen-code-core';
 import { renderWithProviders } from '../../test-utils/render.js';
-import { UIStateContext } from '../contexts/UIStateContext.js';
-import { UIActionsContext } from '../contexts/UIActionsContext.js';
-import type { UIState } from '../contexts/UIStateContext.js';
-import type { UIActions } from '../contexts/UIActionsContext.js';
-
-const createMockUIState = (overrides: Partial<UIState> = {}): UIState => {
-  // AuthDialog only uses authError and pendingAuthType
-  const baseState = {
-    authError: null,
-    pendingAuthType: undefined,
-  } as Partial<UIState>;
-
-  return {
-    ...baseState,
-    ...overrides,
-  } as UIState;
-};
-
-const createMockUIActions = (overrides: Partial<UIActions> = {}): UIActions => {
-  // AuthDialog only uses handleAuthSelect
-  const baseActions = {
-    handleAuthSelect: vi.fn(),
-  } as Partial<UIActions>;
-
-  return {
-    ...baseActions,
-    ...overrides,
-  } as UIActions;
-};
-
-const renderAuthDialog = (
-  settings: LoadedSettings,
-  uiStateOverrides: Partial<UIState> = {},
-  uiActionsOverrides: Partial<UIActions> = {},
-) => {
-  const uiState = createMockUIState(uiStateOverrides);
-  const uiActions = createMockUIActions(uiActionsOverrides);
-
-  return renderWithProviders(
-    <UIStateContext.Provider value={uiState}>
-      <UIActionsContext.Provider value={uiActions}>
-        <AuthDialog />
-      </UIActionsContext.Provider>
-    </UIStateContext.Provider>,
-    { settings },
-  );
-};
 
 describe('AuthDialog', () => {
   const wait = (ms = 50) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -113,9 +66,13 @@ describe('AuthDialog', () => {
       new Set(),
     );
 
-    const { lastFrame } = renderAuthDialog(settings, {
-      authError: 'GEMINI_API_KEY  environment variable not found',
-    });
+    const { lastFrame } = renderWithProviders(
+      <AuthDialog
+        onSelect={() => {}}
+        settings={settings}
+        initialErrorMessage="GEMINI_API_KEY  environment variable not found"
+      />,
+    );
 
     expect(lastFrame()).toContain(
       'GEMINI_API_KEY  environment variable not found',
@@ -159,7 +116,9 @@ describe('AuthDialog', () => {
         new Set(),
       );
 
-      const { lastFrame } = renderAuthDialog(settings);
+      const { lastFrame } = renderWithProviders(
+        <AuthDialog onSelect={() => {}} settings={settings} />,
+      );
 
       // Since the auth dialog only shows OpenAI option now,
       // it won't show GEMINI_API_KEY messages
@@ -203,7 +162,9 @@ describe('AuthDialog', () => {
         new Set(),
       );
 
-      const { lastFrame } = renderAuthDialog(settings);
+      const { lastFrame } = renderWithProviders(
+        <AuthDialog onSelect={() => {}} settings={settings} />,
+      );
 
       expect(lastFrame()).not.toContain(
         'Existing API key detected (GEMINI_API_KEY)',
@@ -247,7 +208,9 @@ describe('AuthDialog', () => {
         new Set(),
       );
 
-      const { lastFrame } = renderAuthDialog(settings);
+      const { lastFrame } = renderWithProviders(
+        <AuthDialog onSelect={() => {}} settings={settings} />,
+      );
 
       // Since the auth dialog only shows OpenAI option now,
       // it won't show GEMINI_API_KEY messages
@@ -292,7 +255,9 @@ describe('AuthDialog', () => {
         new Set(),
       );
 
-      const { lastFrame } = renderAuthDialog(settings);
+      const { lastFrame } = renderWithProviders(
+        <AuthDialog onSelect={() => {}} settings={settings} />,
+      );
 
       // This is a bit brittle, but it's the best way to check which item is selected.
       expect(lastFrame()).toContain('● 2. OpenAI');
@@ -332,7 +297,9 @@ describe('AuthDialog', () => {
         new Set(),
       );
 
-      const { lastFrame } = renderAuthDialog(settings);
+      const { lastFrame } = renderWithProviders(
+        <AuthDialog onSelect={() => {}} settings={settings} />,
+      );
 
       // Default is Qwen OAuth (first option)
       expect(lastFrame()).toContain('● 1. Qwen OAuth');
@@ -374,7 +341,9 @@ describe('AuthDialog', () => {
         new Set(),
       );
 
-      const { lastFrame } = renderAuthDialog(settings);
+      const { lastFrame } = renderWithProviders(
+        <AuthDialog onSelect={() => {}} settings={settings} />,
+      );
 
       // Since the auth dialog doesn't show QWEN_DEFAULT_AUTH_TYPE errors anymore,
       // it will just show the default Qwen OAuth option
@@ -383,7 +352,7 @@ describe('AuthDialog', () => {
   });
 
   it('should prevent exiting when no auth method is selected and show error message', async () => {
-    const handleAuthSelect = vi.fn();
+    const onSelect = vi.fn();
     const settings: LoadedSettings = new LoadedSettings(
       {
         settings: { ui: { customThemes: {} }, mcpServers: {} },
@@ -417,10 +386,8 @@ describe('AuthDialog', () => {
       new Set(),
     );
 
-    const { lastFrame, stdin, unmount } = renderAuthDialog(
-      settings,
-      {},
-      { handleAuthSelect },
+    const { lastFrame, stdin, unmount } = renderWithProviders(
+      <AuthDialog onSelect={onSelect} settings={settings} />,
     );
     await wait();
 
@@ -428,16 +395,16 @@ describe('AuthDialog', () => {
     stdin.write('\u001b'); // ESC key
     await wait();
 
-    // Should show error message instead of calling handleAuthSelect
+    // Should show error message instead of calling onSelect
     expect(lastFrame()).toContain(
       'You must select an auth method to proceed. Press Ctrl+C again to exit.',
     );
-    expect(handleAuthSelect).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
     unmount();
   });
 
   it('should not exit if there is already an error message', async () => {
-    const handleAuthSelect = vi.fn();
+    const onSelect = vi.fn();
     const settings: LoadedSettings = new LoadedSettings(
       {
         settings: { ui: { customThemes: {} }, mcpServers: {} },
@@ -471,10 +438,12 @@ describe('AuthDialog', () => {
       new Set(),
     );
 
-    const { lastFrame, stdin, unmount } = renderAuthDialog(
-      settings,
-      { authError: 'Initial error' },
-      { handleAuthSelect },
+    const { lastFrame, stdin, unmount } = renderWithProviders(
+      <AuthDialog
+        onSelect={onSelect}
+        settings={settings}
+        initialErrorMessage="Initial error"
+      />,
     );
     await wait();
 
@@ -484,13 +453,13 @@ describe('AuthDialog', () => {
     stdin.write('\u001b'); // ESC key
     await wait();
 
-    // Should not call handleAuthSelect
-    expect(handleAuthSelect).not.toHaveBeenCalled();
+    // Should not call onSelect
+    expect(onSelect).not.toHaveBeenCalled();
     unmount();
   });
 
   it('should allow exiting when auth method is already selected', async () => {
-    const handleAuthSelect = vi.fn();
+    const onSelect = vi.fn();
     const settings: LoadedSettings = new LoadedSettings(
       {
         settings: { ui: { customThemes: {} }, mcpServers: {} },
@@ -524,10 +493,8 @@ describe('AuthDialog', () => {
       new Set(),
     );
 
-    const { stdin, unmount } = renderAuthDialog(
-      settings,
-      {},
-      { handleAuthSelect },
+    const { stdin, unmount } = renderWithProviders(
+      <AuthDialog onSelect={onSelect} settings={settings} />,
     );
     await wait();
 
@@ -535,8 +502,8 @@ describe('AuthDialog', () => {
     stdin.write('\u001b'); // ESC key
     await wait();
 
-    // Should call handleAuthSelect with undefined to exit
-    expect(handleAuthSelect).toHaveBeenCalledWith(undefined, SettingScope.User);
+    // Should call onSelect with undefined to exit
+    expect(onSelect).toHaveBeenCalledWith(undefined, SettingScope.User);
     unmount();
   });
 });

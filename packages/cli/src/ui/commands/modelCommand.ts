@@ -12,13 +12,10 @@ import type {
 } from './types.js';
 import { CommandKind } from './types.js';
 import { getAvailableModelsForAuthType } from '../models/availableModels.js';
-import { t } from '../../i18n/index.js';
 
 export const modelCommand: SlashCommand = {
   name: 'model',
-  get description() {
-    return t('Switch the model for this session');
-  },
+  description: 'Switch the model for this session',
   kind: CommandKind.BUILT_IN,
   action: async (
     context: CommandContext,
@@ -39,7 +36,7 @@ export const modelCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Content generator configuration not available.'),
+        content: 'Content generator configuration not available.',
       };
     }
 
@@ -48,7 +45,7 @@ export const modelCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t('Authentication type not available.'),
+        content: 'Authentication type not available.',
       };
     }
 
@@ -58,12 +55,7 @@ export const modelCommand: SlashCommand = {
       return {
         type: 'message',
         messageType: 'error',
-        content: t(
-          'No models available for the current authentication type ({{authType}}).',
-          {
-            authType,
-          },
-        ),
+        content: `No models available for the current authentication type (${authType}).`,
       };
     }
 

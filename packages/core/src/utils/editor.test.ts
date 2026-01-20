@@ -72,7 +72,6 @@ describe('editor utils', () => {
       { editor: 'neovim', commands: ['nvim'], win32Commands: ['nvim'] },
       { editor: 'zed', commands: ['zed', 'zeditor'], win32Commands: ['zed'] },
       { editor: 'emacs', commands: ['emacs'], win32Commands: ['emacs.exe'] },
-      { editor: 'trae', commands: ['trae'], win32Commands: ['trae'] },
     ];
 
     for (const { editor, commands, win32Commands } of testCases) {
@@ -172,7 +171,6 @@ describe('editor utils', () => {
       },
       { editor: 'cursor', commands: ['cursor'], win32Commands: ['cursor'] },
       { editor: 'zed', commands: ['zed', 'zeditor'], win32Commands: ['zed'] },
-      { editor: 'trae', commands: ['trae'], win32Commands: ['trae'] },
     ];
 
     for (const { editor, commands, win32Commands } of guiEditors) {
@@ -323,7 +321,6 @@ describe('editor utils', () => {
       'windsurf',
       'cursor',
       'zed',
-      'trae',
     ];
 
     for (const editor of guiEditors) {
@@ -433,7 +430,6 @@ describe('editor utils', () => {
         'windsurf',
         'cursor',
         'zed',
-        'trae',
       ];
       for (const editor of guiEditors) {
         it(`should not call onEditorClose for ${editor}`, async () => {
@@ -485,7 +481,6 @@ describe('editor utils', () => {
       'windsurf',
       'cursor',
       'zed',
-      'trae',
     ];
     for (const editor of guiEditors) {
       it(`should not allow ${editor} in sandbox mode`, () => {

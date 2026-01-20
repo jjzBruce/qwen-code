@@ -12,7 +12,6 @@ import {
   type RadioSelectItem,
 } from './shared/RadioButtonSelect.js';
 import { useKeypress } from '../hooks/useKeypress.js';
-import { t } from '../../i18n/index.js';
 
 export enum QuitChoice {
   CANCEL = 'cancel',
@@ -40,22 +39,22 @@ export const QuitConfirmationDialog: React.FC<QuitConfirmationDialogProps> = ({
   const options: Array<RadioSelectItem<QuitChoice>> = [
     {
       key: 'quit',
-      label: t('Quit immediately (/quit)'),
+      label: 'Quit immediately (/quit)',
       value: QuitChoice.QUIT,
     },
     {
       key: 'summary-and-quit',
-      label: t('Generate summary and quit (/summary)'),
+      label: 'Generate summary and quit (/summary)',
       value: QuitChoice.SUMMARY_AND_QUIT,
     },
     {
       key: 'save-and-quit',
-      label: t('Save conversation and quit (/chat save)'),
+      label: 'Save conversation and quit (/chat save)',
       value: QuitChoice.SAVE_AND_QUIT,
     },
     {
       key: 'cancel',
-      label: t('Cancel (stay in application)'),
+      label: 'Cancel (stay in application)',
       value: QuitChoice.CANCEL,
     },
   ];
@@ -70,7 +69,7 @@ export const QuitConfirmationDialog: React.FC<QuitConfirmationDialogProps> = ({
       marginLeft={1}
     >
       <Box flexDirection="column" marginBottom={1}>
-        <Text>{t('What would you like to do before exiting?')}</Text>
+        <Text>What would you like to do before exiting?</Text>
       </Box>
 
       <RadioButtonSelect items={options} onSelect={onSelect} isFocused />

@@ -26,7 +26,6 @@ import type {
 } from './types.js';
 import { CommandKind } from './types.js';
 import { SettingScope } from '../../config/settings.js';
-import { t } from '../../i18n/index.js';
 
 function getIdeStatusMessage(ideClient: IdeClient): {
   messageType: 'info' | 'error';
@@ -139,35 +138,27 @@ export const ideCommand = async (): Promise<SlashCommand> => {
   if (!currentIDE) {
     return {
       name: 'ide',
-      get description() {
-        return t('manage IDE integration');
-      },
+      description: 'manage IDE integration',
       kind: CommandKind.BUILT_IN,
       action: (): SlashCommandActionReturn =>
         ({
           type: 'message',
           messageType: 'error',
-          content: t(
-            'IDE integration is not supported in your current environment. To use this feature, run Qwen Code in one of these supported IDEs: VS Code or VS Code forks.',
-          ),
+          content: `IDE integration is not supported in your current environment. To use this feature, run Qwen Code in one of these supported IDEs: VS Code or VS Code forks.`,
         }) as const,
     };
   }
 
   const ideSlashCommand: SlashCommand = {
     name: 'ide',
-    get description() {
-      return t('manage IDE integration');
-    },
+    description: 'manage IDE integration',
     kind: CommandKind.BUILT_IN,
     subCommands: [],
   };
 
   const statusCommand: SlashCommand = {
     name: 'status',
-    get description() {
-      return t('check status of IDE integration');
-    },
+    description: 'check status of IDE integration',
     kind: CommandKind.BUILT_IN,
     action: async (): Promise<SlashCommandActionReturn> => {
       const { messageType, content } =
@@ -182,12 +173,7 @@ export const ideCommand = async (): Promise<SlashCommand> => {
 
   const installCommand: SlashCommand = {
     name: 'install',
-    get description() {
-      const ideName = ideClient.getDetectedIdeDisplayName() ?? 'IDE';
-      return t('install required IDE companion for {{ideName}}', {
-        ideName,
-      });
-    },
+    description: `install required IDE companion for ${ideClient.getDetectedIdeDisplayName()}`,
     kind: CommandKind.BUILT_IN,
     action: async (context) => {
       const installer = getIdeInstaller(currentIDE);
@@ -260,9 +246,7 @@ export const ideCommand = async (): Promise<SlashCommand> => {
 
   const enableCommand: SlashCommand = {
     name: 'enable',
-    get description() {
-      return t('enable IDE integration');
-    },
+    description: 'enable IDE integration',
     kind: CommandKind.BUILT_IN,
     action: async (context: CommandContext) => {
       context.services.settings.setValue(
@@ -284,9 +268,7 @@ export const ideCommand = async (): Promise<SlashCommand> => {
 
   const disableCommand: SlashCommand = {
     name: 'disable',
-    get description() {
-      return t('disable IDE integration');
-    },
+    description: 'disable IDE integration',
     kind: CommandKind.BUILT_IN,
     action: async (context: CommandContext) => {
       context.services.settings.setValue(

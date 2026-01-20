@@ -24,14 +24,6 @@ import { safeJsonParse } from '../../utils/safeJsonParse.js';
 import { StreamingToolCallParser } from './streamingToolCallParser.js';
 
 /**
- * Extended usage type that supports both OpenAI standard format and alternative formats
- * Some models return cached_tokens at the top level instead of in prompt_tokens_details
- */
-interface ExtendedCompletionUsage extends OpenAI.CompletionUsage {
-  cached_tokens?: number;
-}
-
-/**
  * Tool call accumulator for streaming responses
  */
 export interface ToolCallAccumulator {
@@ -590,13 +582,7 @@ export class OpenAIContentConverter {
       const promptTokens = usage.prompt_tokens || 0;
       const completionTokens = usage.completion_tokens || 0;
       const totalTokens = usage.total_tokens || 0;
-      // Support both formats: prompt_tokens_details.cached_tokens (OpenAI standard)
-      // and cached_tokens (some models return it at top level)
-      const extendedUsage = usage as ExtendedCompletionUsage;
-      const cachedTokens =
-        usage.prompt_tokens_details?.cached_tokens ??
-        extendedUsage.cached_tokens ??
-        0;
+      const cachedTokens = usage.prompt_tokens_details?.cached_tokens || 0;
 
       // If we only have total tokens but no breakdown, estimate the split
       // Typically input is ~70% and output is ~30% for most conversations
@@ -721,13 +707,7 @@ export class OpenAIContentConverter {
       const promptTokens = usage.prompt_tokens || 0;
       const completionTokens = usage.completion_tokens || 0;
       const totalTokens = usage.total_tokens || 0;
-      // Support both formats: prompt_tokens_details.cached_tokens (OpenAI standard)
-      // and cached_tokens (some models return it at top level)
-      const extendedUsage = usage as ExtendedCompletionUsage;
-      const cachedTokens =
-        usage.prompt_tokens_details?.cached_tokens ??
-        extendedUsage.cached_tokens ??
-        0;
+      const cachedTokens = usage.prompt_tokens_details?.cached_tokens || 0;
 
       // If we only have total tokens but no breakdown, estimate the split
       // Typically input is ~70% and output is ~30% for most conversations

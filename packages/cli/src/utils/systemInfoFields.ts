@@ -5,7 +5,6 @@
  */
 
 import type { ExtendedSystemInfo } from './systemInfo.js';
-import { t } from '../i18n/index.js';
 
 /**
  * Field configuration for system information display
@@ -24,59 +23,59 @@ export function getSystemInfoFields(
 ): SystemInfoField[] {
   const allFields: SystemInfoField[] = [
     {
-      label: t('CLI Version'),
+      label: 'CLI Version',
       key: 'cliVersion',
     },
     {
-      label: t('Git Commit'),
+      label: 'Git Commit',
       key: 'gitCommit',
     },
     {
-      label: t('Model'),
+      label: 'Model',
       key: 'modelVersion',
     },
     {
-      label: t('Sandbox'),
+      label: 'Sandbox',
       key: 'sandboxEnv',
     },
     {
-      label: t('OS Platform'),
+      label: 'OS Platform',
       key: 'osPlatform',
     },
     {
-      label: t('OS Arch'),
+      label: 'OS Arch',
       key: 'osArch',
     },
     {
-      label: t('OS Release'),
+      label: 'OS Release',
       key: 'osRelease',
     },
     {
-      label: t('Node.js Version'),
+      label: 'Node.js Version',
       key: 'nodeVersion',
     },
     {
-      label: t('NPM Version'),
+      label: 'NPM Version',
       key: 'npmVersion',
     },
     {
-      label: t('Session ID'),
+      label: 'Session ID',
       key: 'sessionId',
     },
     {
-      label: t('Auth Method'),
+      label: 'Auth Method',
       key: 'selectedAuthType',
     },
     {
-      label: t('Base URL'),
+      label: 'Base URL',
       key: 'baseUrl',
     },
     {
-      label: t('Memory Usage'),
+      label: 'Memory Usage',
       key: 'memoryUsage',
     },
     {
-      label: t('IDE Client'),
+      label: 'IDE Client',
       key: 'ideClient',
     },
   ];

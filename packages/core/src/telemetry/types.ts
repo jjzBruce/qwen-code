@@ -318,20 +318,10 @@ export class FlashFallbackEvent implements BaseTelemetryEvent {
 export class RipgrepFallbackEvent implements BaseTelemetryEvent {
   'event.name': 'ripgrep_fallback';
   'event.timestamp': string;
-  use_ripgrep: boolean;
-  use_builtin_ripgrep: boolean;
-  error?: string;
 
-  constructor(
-    use_ripgrep: boolean,
-    use_builtin_ripgrep: boolean,
-    error?: string,
-  ) {
+  constructor(public error?: string) {
     this['event.name'] = 'ripgrep_fallback';
     this['event.timestamp'] = new Date().toISOString();
-    this.use_ripgrep = use_ripgrep;
-    this.use_builtin_ripgrep = use_builtin_ripgrep;
-    this.error = error;
   }
 }
 
@@ -696,29 +686,6 @@ export class SubagentExecutionEvent implements BaseTelemetryEvent {
   }
 }
 
-export class AuthEvent implements BaseTelemetryEvent {
-  'event.name': 'auth';
-  'event.timestamp': string;
-  auth_type: AuthType;
-  action_type: 'auto' | 'manual';
-  status: 'success' | 'error' | 'cancelled';
-  error_message?: string;
-
-  constructor(
-    auth_type: AuthType,
-    action_type: 'auto' | 'manual',
-    status: 'success' | 'error' | 'cancelled',
-    error_message?: string,
-  ) {
-    this['event.name'] = 'auth';
-    this['event.timestamp'] = new Date().toISOString();
-    this.auth_type = auth_type;
-    this.action_type = action_type;
-    this.status = status;
-    this.error_message = error_message;
-  }
-}
-
 export type TelemetryEvent =
   | StartSessionEvent
   | EndSessionEvent
@@ -746,8 +713,7 @@ export type TelemetryEvent =
   | ExtensionInstallEvent
   | ExtensionUninstallEvent
   | ToolOutputTruncatedEvent
-  | ModelSlashCommandEvent
-  | AuthEvent;
+  | ModelSlashCommandEvent;
 
 export class ExtensionDisableEvent implements BaseTelemetryEvent {
   'event.name': 'extension_disable';

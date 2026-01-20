@@ -19,7 +19,6 @@ import {
   USER_AGREEMENT_RATE_MEDIUM,
 } from '../utils/displayUtils.js';
 import { computeSessionStats } from '../utils/computeStats.js';
-import { t } from '../../i18n/index.js';
 
 // A more flexible and powerful StatRow component
 interface StatRowProps {
@@ -86,22 +85,22 @@ const ModelUsageTable: React.FC<{
       <Box>
         <Box width={nameWidth}>
           <Text bold color={theme.text.primary}>
-            {t('Model Usage')}
+            Model Usage
           </Text>
         </Box>
         <Box width={requestsWidth} justifyContent="flex-end">
           <Text bold color={theme.text.primary}>
-            {t('Reqs')}
+            Reqs
           </Text>
         </Box>
         <Box width={inputTokensWidth} justifyContent="flex-end">
           <Text bold color={theme.text.primary}>
-            {t('Input Tokens')}
+            Input Tokens
           </Text>
         </Box>
         <Box width={outputTokensWidth} justifyContent="flex-end">
           <Text bold color={theme.text.primary}>
-            {t('Output Tokens')}
+            Output Tokens
           </Text>
         </Box>
       </Box>
@@ -142,14 +141,13 @@ const ModelUsageTable: React.FC<{
       {cacheEfficiency > 0 && (
         <Box flexDirection="column" marginTop={1}>
           <Text color={theme.text.primary}>
-            <Text color={theme.status.success}>{t('Savings Highlight:')}</Text>{' '}
+            <Text color={theme.status.success}>Savings Highlight:</Text>{' '}
             {totalCachedTokens.toLocaleString()} ({cacheEfficiency.toFixed(1)}
-            %){' '}
-            {t('of input tokens were served from the cache, reducing costs.')}
+            %) of input tokens were served from the cache, reducing costs.
           </Text>
           <Box height={1} />
           <Text color={theme.text.secondary}>
-            » {t('Tip: For a full token breakdown, run `/stats model`.')}
+            » Tip: For a full token breakdown, run `/stats model`.
           </Text>
         </Box>
       )}
@@ -201,7 +199,7 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({
     }
     return (
       <Text bold color={theme.text.accent}>
-        {t('Session Stats')}
+        Session Stats
       </Text>
     );
   };
@@ -217,33 +215,33 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({
       {renderTitle()}
       <Box height={1} />
 
-      <Section title={t('Interaction Summary')}>
-        <StatRow title={t('Session ID:')}>
+      <Section title="Interaction Summary">
+        <StatRow title="Session ID:">
           <Text color={theme.text.primary}>{stats.sessionId}</Text>
         </StatRow>
-        <StatRow title={t('Tool Calls:')}>
+        <StatRow title="Tool Calls:">
           <Text color={theme.text.primary}>
             {tools.totalCalls} ({' '}
             <Text color={theme.status.success}>✓ {tools.totalSuccess}</Text>{' '}
             <Text color={theme.status.error}>x {tools.totalFail}</Text> )
           </Text>
         </StatRow>
-        <StatRow title={t('Success Rate:')}>
+        <StatRow title="Success Rate:">
           <Text color={successColor}>{computed.successRate.toFixed(1)}%</Text>
         </StatRow>
         {computed.totalDecisions > 0 && (
-          <StatRow title={t('User Agreement:')}>
+          <StatRow title="User Agreement:">
             <Text color={agreementColor}>
               {computed.agreementRate.toFixed(1)}%{' '}
               <Text color={theme.text.secondary}>
-                ({computed.totalDecisions} {t('reviewed')})
+                ({computed.totalDecisions} reviewed)
               </Text>
             </Text>
           </StatRow>
         )}
         {files &&
           (files.totalLinesAdded > 0 || files.totalLinesRemoved > 0) && (
-            <StatRow title={t('Code Changes:')}>
+            <StatRow title="Code Changes:">
               <Text color={theme.text.primary}>
                 <Text color={theme.status.success}>
                   +{files.totalLinesAdded}
@@ -256,16 +254,16 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({
           )}
       </Section>
 
-      <Section title={t('Performance')}>
-        <StatRow title={t('Wall Time:')}>
+      <Section title="Performance">
+        <StatRow title="Wall Time:">
           <Text color={theme.text.primary}>{duration}</Text>
         </StatRow>
-        <StatRow title={t('Agent Active:')}>
+        <StatRow title="Agent Active:">
           <Text color={theme.text.primary}>
             {formatDuration(computed.agentActiveTime)}
           </Text>
         </StatRow>
-        <SubStatRow title={t('API Time:')}>
+        <SubStatRow title="API Time:">
           <Text color={theme.text.primary}>
             {formatDuration(computed.totalApiTime)}{' '}
             <Text color={theme.text.secondary}>
@@ -273,7 +271,7 @@ export const StatsDisplay: React.FC<StatsDisplayProps> = ({
             </Text>
           </Text>
         </SubStatRow>
-        <SubStatRow title={t('Tool Time:')}>
+        <SubStatRow title="Tool Time:">
           <Text color={theme.text.primary}>
             {formatDuration(computed.totalToolTime)}{' '}
             <Text color={theme.text.secondary}>

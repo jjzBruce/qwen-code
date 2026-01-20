@@ -129,8 +129,7 @@ export interface OpenDialogActionReturn {
     | 'model'
     | 'subagent_create'
     | 'subagent_list'
-    | 'permissions'
-    | 'approval-mode';
+    | 'permissions';
 }
 
 /**

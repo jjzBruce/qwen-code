@@ -9,7 +9,6 @@ import type {
   ToolCallConfirmationDetails,
   ToolConfirmationOutcome,
 } from '../tools/tools.js';
-import type { Part } from '@google/genai';
 
 export type SubAgentEvent =
   | 'start'
@@ -73,7 +72,6 @@ export interface SubAgentToolResultEvent {
   name: string;
   success: boolean;
   error?: string;
-  responseParts?: Part[];
   resultDisplay?: string;
   durationMs?: number;
   timestamp: number;

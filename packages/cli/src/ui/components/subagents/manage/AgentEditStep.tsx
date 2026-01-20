@@ -11,7 +11,6 @@ import { MANAGEMENT_STEPS } from '../types.js';
 import { theme } from '../../../semantic-colors.js';
 import { useLaunchEditor } from '../../../hooks/useLaunchEditor.js';
 import { type SubagentConfig } from '@qwen-code/qwen-code-core';
-import { t } from '../../../../i18n/index.js';
 
 interface EditOption {
   id: string;
@@ -21,21 +20,15 @@ interface EditOption {
 const editOptions: EditOption[] = [
   {
     id: 'editor',
-    get label() {
-      return t('Open in editor');
-    },
+    label: 'Open in editor',
   },
   {
     id: 'tools',
-    get label() {
-      return t('Edit tools');
-    },
+    label: 'Edit tools',
   },
   {
     id: 'color',
-    get label() {
-      return t('Edit color');
-    },
+    label: 'Edit color',
   },
 ];
 
@@ -72,9 +65,7 @@ export function EditOptionsStep({
           await launchEditor(selectedAgent?.filePath);
         } catch (err) {
           setError(
-            t('Failed to launch editor: {{error}}', {
-              error: err instanceof Error ? err.message : 'Unknown error',
-            }),
+            `Failed to launch editor: ${err instanceof Error ? err.message : 'Unknown error'}`,
           );
         }
       } else if (selectedValue === 'tools') {
@@ -107,7 +98,7 @@ export function EditOptionsStep({
       {error && (
         <Box flexDirection="column">
           <Text bold color={theme.status.error}>
-            {t('❌ Error:')}
+            ❌ Error:
           </Text>
           <Box flexDirection="column" padding={1} paddingBottom={0}>
             <Text color={theme.status.error} wrap="wrap">
